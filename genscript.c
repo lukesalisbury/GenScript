@@ -7,6 +7,8 @@
  * Modules
  *  If first line is $static or $shared it will be build as such 
 *************************************************************************/
+#define GENSCRIPT_VERSION 20240213
+
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -40,8 +42,6 @@
 #ifndef nullptr
 	#define nullptr NULL
 #endif
-
-
 
 #define SOURCE_DIRECTORY "src"
 //#define SOURCE_DIRECTORY "source"
@@ -687,7 +687,6 @@ elix_directory * elix_os_directory_list_files(const char * path, const char * su
 	struct dirent * entity = nullptr;
 	char buffer[ELIX_FILE_PATH_LENGTH] = {0};
 	size_t path_len = elix_cstring_length(path, 0);
-
 
 	current_directory = opendir(path);
 
@@ -1364,6 +1363,39 @@ size_t elix_file_write_string_from_compilerinfo( elix_file * file, const char * 
 	return fwrite(buffer, elix_cstring_length(buffer, 0), 1, FH(file->handle));
 }
 
+uint8_t scan_filelist( char * file_path, const char * module, ConfigList * files, ConfigList * module_list, ConfigList * link_objects) {
+
+	char * trim_path = file_path;
+	char * path_ext = nullptr;
+
+	size_t newl = elix_cstring_find_of(file_path, "/*.", 0);
+	size_t extl = elix_cstring_length(file_path, 0);
+	if ( newl < ELIX_FILE_PATH_LENGTH ) {
+		trim_path = malloc(newl);
+		elix_cstring_copy2(file_path, trim_path, newl);
+
+		if ( !elix_cstring_match(file_path+newl+1, "*.*", 4) ) {
+			path_ext = malloc(extl-newl);
+			elix_cstring_copy2(file_path+newl+2, path_ext, extl-newl-2);
+		}
+	}	
+	
+	elix_directory * directory = elix_os_directory_list_files(trim_path, path_ext);
+	if ( directory ) {
+		for (size_t b = 0; b < directory->count; ++b) {
+			if ( !elix_os_directory_is(directory->files[b].uri) ) {
+				elix_cstring_copy(directory->files[b].uri, files->value[files->current]);
+				files->current++;
+			}
+		}
+		elix_os_directory_list_destroy(&directory);
+	}
+
+	if ( trim_path != file_path ) {
+		free(trim_path);
+	}
+	free_if(path_ext);
+}
 
 uint8_t parse_filelist( const char * module, ConfigList * files, ConfigList * module_list, ConfigList * link_objects) {
 	uint8_t link = LT_PROGRAM;
@@ -1397,10 +1429,19 @@ uint8_t parse_filelist( const char * module, ConfigList * files, ConfigList * mo
 		} else if ( elix_cstring_has_prefix(data, "$static") ) {
 			link = LT_STATIC;
 		} else if ( elix_cstring_has_prefix(data, "./") ) {
-			elix_cstring_copy(data + 2, files->value[files->current]);
+			if ( elix_cstring_find_of(data, "/*.", 1) ) {
+				scan_filelist(data, module, files, module_list, link_objects);
+			} else {
+				elix_cstring_copy(data + 2, files->value[files->current]);
+			}
 			counter++;
 		} else if ( data[0] ) {
-			elix_cstring_copy(data, files->value[files->current]);
+			if ( elix_cstring_find_of(data, "/*.", 0) ) {
+				scan_filelist(data, module, files, module_list, link_objects);
+			} else {
+				elix_cstring_copy(data, files->value[files->current]);
+			}
+			
 			counter++;
 		}
 		files->current++;
@@ -1627,7 +1668,7 @@ uint32_t fg_build_ninja(CompilerInfo * target, CurrentConfiguration * options, c
 	parse_txtcfg(compiler_common_file, options, target);
 	parse_txtcfg(compiler_file, options, target);
 
-	if ( find_configmap(&options->options, "DEBUG") != SIZE_MAX || find_configmap(&options->options, "debug") != SIZE_MAX) {
+	if ( find_configmap(&options->options, "DEBUG") != SIZE_MAX || find_configmap(&options->options, "debug") != SIZE_MAX ) {
 		push_configlist(&options->flags, "-g3");
 		push_configlist(&options->lib_flags, "-g3");
 		push_configlist(&options->defines, "_DEBUG");
@@ -2594,18 +2635,6 @@ void creeate_generator(CompilerInfo * target, CurrentConfiguration *options, uin
 	}
 	elix_file_close(&file_check);
 
-/*
-	elix_directory * modules_dir = elix_os_directory_list_files("./config/modules/", ".txt");
-	if ( modules_dir ) {
-		for (size_t a = 0; a < modules_dir->count; ++a) {
-			if ( memcmp(modules_dir->files[a].filename,"base", 5) ) {
-				LOG_INFO("%s", modules_dir->files[a].filename);
-				//options->modules
-			}
-				
-		}
-	}
-*/
 	char directories_generator[][128] = {
 		"./compile/",
 		"./compile/$platform-$arch",
@@ -2614,8 +2643,8 @@ void creeate_generator(CompilerInfo * target, CurrentConfiguration *options, uin
 
 	char file_generator[][128] = {
 		"./compile/$platform-$arch/build.ninja",
-		"./run-build-$platform-$arch.bat",
-		"./run-build-$platform-$arch.sh",
+		"./run-build-$platform-$mode-$arch.bat",
+		"./run-build-$platform-$mode-$arch.sh",
 	};
 
 	uint32_t (*file_generator_function[])(CompilerInfo * target, CurrentConfiguration *options, char * filename ) = {
@@ -2775,7 +2804,6 @@ int main(int argc, char * argv[]) {
 
 	push_configlist(&configuration.modules, "base");
 
-
 	program_mode current_program_mode = PM_AUTO;
 	uint8_t batch = 0;
 	uint8_t release_mode = 0;
@@ -2783,7 +2811,6 @@ int main(int argc, char * argv[]) {
 	CompilerInfo info = check_preprocessor();
 
 	for (uint8_t var = 1; var < argc; ++var) {
-		//LOG_INFO("ARD[%d] %s", var, argv[var]);
 		if ( elix_cstring_has_prefix(argv[var],"-help") ) {
 			current_program_mode = PM_HELP;
 		} else if ( elix_cstring_has_prefix(argv[var],"--help") ) {
@@ -2816,8 +2843,6 @@ int main(int argc, char * argv[]) {
 			current_program_mode = PM_UPDATEMODULE;
 		} else if ( elix_cstring_has_prefix(argv[var],"-gen") ) {
 			current_program_mode = PM_GEN;
-
-
 		} else if ( elix_cstring_has_prefix(argv[var],"-c=") ) {
 			current_program_mode = PM_B2H;
 			push_configmap(&configuration.options, argv[var], 0);
@@ -2833,7 +2858,6 @@ int main(int argc, char * argv[]) {
 	} else {
 		push_configmap(&configuration.options, info.mode, 0);
 	}
-
 
 	if ( current_program_mode == PM_AUTO ) {
 		char check_platformarch[128] = "./config/$platform-$arch.txt";
@@ -2924,14 +2948,10 @@ int main(int argc, char * argv[]) {
 				"windows", "linux", "bsd", "haiku", "unknown", "3ds", nullptr
 			};
 
-
 			LOG_INFO("---- [Platform Hash Table] ----");
 			for (size_t i = 0; platform_list[i]; i++) {
 				LOG_INFO("- %s\t\t0x%x", platform_list[i], elix_hash(platform_list[i], elix_cstring_length(platform_list[i], 0)) );
 			}
-			
-
-
 
 			break;
 		default:
