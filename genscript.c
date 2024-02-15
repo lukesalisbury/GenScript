@@ -7,7 +7,7 @@
  * Modules
  *  If first line is $static or $shared it will be build as such 
 *************************************************************************/
-#define GENSCRIPT_VERSION 20240213
+#define GENSCRIPT_VERSION 20240214
 
 #include <stdio.h>
 #include <stdint.h>
@@ -1429,14 +1429,14 @@ uint8_t parse_filelist( const char * module, ConfigList * files, ConfigList * mo
 		} else if ( elix_cstring_has_prefix(data, "$static") ) {
 			link = LT_STATIC;
 		} else if ( elix_cstring_has_prefix(data, "./") ) {
-			if ( elix_cstring_find_of(data, "/*.", 1) ) {
+			if ( elix_cstring_find_of(data, "/*.", 1) != SIZE_MAX) {
 				scan_filelist(data, module, files, module_list, link_objects);
 			} else {
 				elix_cstring_copy(data + 2, files->value[files->current]);
 			}
 			counter++;
 		} else if ( data[0] ) {
-			if ( elix_cstring_find_of(data, "/*.", 0) ) {
+			if ( elix_cstring_find_of(data, "/*.", 0) != SIZE_MAX ) {
 				scan_filelist(data, module, files, module_list, link_objects);
 			} else {
 				elix_cstring_copy(data, files->value[files->current]);
