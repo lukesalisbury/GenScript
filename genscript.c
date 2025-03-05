@@ -1,3 +1,4 @@
+//#!gcc ./genscript.c -o ./gsb.exe
 /*************************************************************************
  * Generates build.ninja files for multiple platforms
  * build: gcc genscript.c -o gsb.exe
@@ -10,7 +11,7 @@
 *************************************************************************/
 //TODO: Fix Complier selection
 
-#define GENSCRIPT_VERSION 20241201
+#define GENSCRIPT_VERSION 20250305
 
 //#define SOURCE_DIRECTORY "src"
 #define SOURCE_DIRECTORY "source"
@@ -284,7 +285,6 @@ size_t elix_cstring_find_of(const char * str, const char * search, size_t offset
 	return SIZE_MAX;
 }
 
-
 size_t elix_cstring_find_last_of(const char * str, const char * search, size_t offset) {
 	size_t length = elix_cstring_length(str, 0);
 	size_t sl = elix_cstring_length(search, 0);
@@ -304,7 +304,7 @@ size_t elix_cstring_find_last_of(const char * str, const char * search, size_t o
 	return SIZE_MAX;
 }
 
-size_t elix_cstring_inreplace( char * source_text, size_t buffer_size, const char *search, const char *replace) {
+size_t elix_cstring_inreplace( char * source_text, size_t buffer_size, const char *search, const char *replace, uint8_t repeat) {
 	//NOTE: This is slow, and not a good implemenation
 	//TODO: Check for overflow
 	//TODO: Implement Repeat
@@ -396,7 +396,6 @@ char * elix_cstring_merge( char ** source_array, char token) {
 	}
 
 	return string;
-
 }
 
 char ** elix_cstring_split( const char * source, char token, char string_bracket) {
@@ -542,7 +541,7 @@ uint32_t elix_file_open(elix_file * file, const char * filename, ElixFileFlag mo
 		file->flag = EFF_FILE_ERROR;
 		//LOG_MESSAGE("File not found %s", filename);
 	}
-	return (uint32_t)(mode & EFF_FILE_WRITING ? EFF_FILE_WRITE_ERROR : EFF_FILE_READ_ERROR);
+	return (uint32_t)(EFF_FILE_ERROR | (mode & EFF_FILE_WRITING ? EFF_FILE_WRITE_ERROR : EFF_FILE_READ_ERROR));
 
 }
 
@@ -923,16 +922,16 @@ typedef struct {
 	char define[256];
 } CompilerConfigOption;
 
-#define PACK_ID(A, B, C, D) (A | B << 8 | C << 16 | D << 24 |)
-#define UNPACK_ID(ID, STR5) ( STR5[0] = ID & 0xFF; STR5[1] = ID & 0xFF00; STR5[2] = ID & 0xFF0000; STR5[3] = ID & 0xFF000000; STR5[4] = 0; )
+#define PACK_ID(A, B, C, D) (A | B << 8 | C << 16 | D << 24 )
+#define UNPACK_ID(ID) { ID & 0xFF, (ID & 0xFF00) >> 8, (ID & 0xFF0000) >> 16, (ID & 0xFF000000) >> 24, 0 }
 
 typedef struct {
 	uint32_t id; // Use PACK_ID macro
 	char filename[64];
 	char content[1024];
-} ProjectFile;
+} EditorFile;
 
-
+/* Genscript Default Settings */
 
 static char config_arch_text[512] = "[defines]\n\
 PLATFORM_BITS=$bits\n\
@@ -948,6 +947,8 @@ static_linker=ar -rc\n\
 program_suffix=\n\
 shared_suffix=.so\n\
 static_suffix=.a\n\
+cppStandard=c++14\n\
+cStandard=c11\n\
 [includes]\n\
 ./include/\n\
 [options-windows]\n\
@@ -958,10 +959,10 @@ finaliser=3dsxtool\n\
 program_suffix=.elf\n\
 finalise_suffix=.3dsx\n\
 [commands]\n\
-compile_cpp=${compiler} ${compiler_includes} ${compller_defines} ${compiler_flags} -o $out -c $in\n\
-compile_c=${compiler} ${compiler_includes} ${compller_defines}  ${compiler_flags} -o $out -c $in\n\
+compile_cpp=${compiler} ${compiler_includes} ${compller_defines} ${compiler_cpp_flags} ${compiler_flags} -o $out -c $in\n\
+compile_c=${compiler} ${compiler_includes} ${compller_defines} ${compiler_c_flags} ${compiler_flags} -o $out -c $in\n\
 link_shared=${linker} -shared ${compiler_lib_flags} $in -o ${binary_prefix}$out  ${compiler_lib}\n\
-link_static=${static_linker} ${object_dir}$out $in \n\
+link_static=${static_linker} ${object_dir}/$out $in \n\
 link=${linker} ${compiler_lib_flags} $in -o ${binary_prefix}$out ${compiler_lib} \n\
 finalise=${finaliser} ${finalise_flags} $in -o ${binary_prefix}$out\n\
 build_resources=echo\n\
@@ -992,8 +993,8 @@ static ExtensionOutput bash_extension_output[32] = {
 	{"lk_static_stage", "", "${static_linker} ${object_dir}$out $in \n"},
 	{"resource_stage", "", "TODO\n"},
 	{"final_stage", "", "TODO\n"},
-	{"cpp", "o", "\t${compiler} ${compiler_includes} ${compller_defines} ${compiler_flags} -o ${object_dir}%s.%s -c %s.cpp\n"},
-	{"c", "o", "\t${compiler} ${compiler_includes} ${compller_defines} ${compiler_flags} -o ${object_dir}%s.%s -c %s.c\n"},
+	{"cpp", "o", "\t${compiler} ${compiler_includes} ${compller_defines} ${compiler_cpp_flags} ${compiler_flags} -o ${object_dir}%s.%s -c %s.cpp\n"},
+	{"c", "o", "\t${compiler} ${compiler_includes} ${compller_defines} ${compiler_c_flags} ${compiler_flags} -o ${object_dir}%s.%s -c %s.c\n"},
 	{ "", "", ""}
 };
 static ExtensionOutput batch_extension_output[32] = {
@@ -1012,7 +1013,14 @@ static PlatformConfig config_platform_text[] = {
 	{ 0x6986d1e1, "3DS", "[libs]\nstdc++\nm\nctru\ncitro3d\n[lib_flags]\n-std=c++11\n-march=armv6k\n-mtune=mpcore\n-mfloat-abi=hard\n-mtp=soft\n-specs=3dsx.specs\n-L\"/opt/devkitpro/devkitARM/lib\"\n-L\"/opt/devkitpro/libctru/lib\"\n[includes]\n\"/opt/devkitpro/devkitARM/arm-none-eabi/include\"\n\"/opt/devkitpro/libctru/include\"\n[flags]\n-std=c++11\n-march=armv6k\n-mtune=mpcore\n-mfloat-abi=hard\n[defines]\nPLATFORM_3DS\nPLATFORM_BITS=32\nARM11\n[commands]\nfinalise=${finaliser} $in  $out ${finalise_flags}\nbuild_smdh=smdhtool --create -o $out\nbuild_pica=./genscript.exe -h=$out -i=$in.temp -c=\"picasso -o $in.temp $in\"\n[extension]\npica=h;build res/%s.h: build_pica %s.pica\n"}
 };
 
+/* */
+static EditorFile editor_files[] = {
+	{PACK_ID('V','S','C','o'), ".vscode/", ""},
+	{PACK_ID('V','S','C','o'), ".vscode/tasks.json", "{\n\t\"version\": \"2.0.0\",\n\t\"tasks\":[\n\t\t{\n\t\t\t\"type\": \"shell\",\n\t\t\t\"label\": \"Build All\",\n\t\t\t\"command\": \"ninja\",\n\t\t\t\"problemMatcher\": [\n\t\t\t\t\"$gcc\"\n\t\t\t],\n\t\t\t\"group\": {\n\t\t\t\t\"kind\": \"build\",\n\t\t\t\t\"isDefault\": true\n\t\t\t}\n\t\t},\n\t\t{\n\t\t\t\"type\": \"shell\",\n\t\t\t\"label\": \"Reconfig\",\n\t\t\t\"command\": \"./gsb.exe\",\n\t\t\t\"group\": {\n\t\t\t\t\"kind\": \"build\",\n\t\t\t\t\"isDefault\": false\n\t\t\t}\n\t\t}\n\t\t]\n\t\n}"},
+	{PACK_ID('V','S','C','o'), ".vscode/settings.json", "{\n\t\"triggerTaskOnSave.on\": true,\n\t\"triggerTaskOnSave.tasks\": {\n\t\t\"Build All\": [\n\t\t\t\"*.c\",\n\t\t\t\"*.h\",\n\t\t\t\"*.cpp\",\n\t\t\t\"*.hpp\",\n\t\t],\n\t\t\"Reconfig\": [\n\t\t\t\"*.txt\",\n\t\t],\n\t},\n}"},
+};
 
+/* genscript enum & struct */
 typedef struct {
 	char os[16];
 	char arch[8];
@@ -1350,18 +1358,18 @@ uint64_t extension_ident( const char * extension ) {
 }
 
 void update_string_from_compilerinfo( char * source_text, size_t source_size, CompilerInfo * target ) {
-	elix_cstring_inreplace(source_text, source_size, "$platform", target->os);
-	elix_cstring_inreplace(source_text, source_size, "$arch", target->arch);
-	elix_cstring_inreplace(source_text, source_size, "$compiler", target->compiler);
-	elix_cstring_inreplace(source_text, source_size, "$mode", target->mode);
-	elix_cstring_inreplace(source_text, source_size, "$bits", target->bits);
-	elix_cstring_inreplace(source_text, source_size, "$triplet", target->triplet);
-	elix_cstring_inreplace(source_text, source_size, "$buildmode", target->mode);
+	elix_cstring_inreplace(source_text, source_size, "$platform", target->os, 1);
+	elix_cstring_inreplace(source_text, source_size, "$arch", target->arch, 1);
+	elix_cstring_inreplace(source_text, source_size, "$compiler", target->compiler, 1);
+	elix_cstring_inreplace(source_text, source_size, "$mode", target->mode, 1);
+	elix_cstring_inreplace(source_text, source_size, "$bits", target->bits, 1);
+	elix_cstring_inreplace(source_text, source_size, "$triplet", target->triplet, 1);
+	elix_cstring_inreplace(source_text, source_size, "$buildmode", target->mode, 1);
 
 	char os[16];
 	elix_cstring_copy(target->os, os);
 	elix_cstring_transform(os, ELIX_CHAR_UPPER);
-	elix_cstring_inreplace(source_text, source_size, "$PLATFORM", os);
+	elix_cstring_inreplace(source_text, source_size, "$PLATFORM", os, 1);
 }
 
 char *  elix_cstring_formatted( const char * format, ... ) {
@@ -1439,7 +1447,7 @@ uint8_t parse_filelist( const char * module, ConfigList * files, ConfigList * mo
 	uint8_t link = LT_PROGRAM;
 	char filename[512] = "./config/modules/$module.txt";
 	uint8_t counter = 0;
-	elix_cstring_inreplace(filename, 512, "$module", module);
+	elix_cstring_inreplace(filename, 512, "$module", module,0);
 
 	elix_file file = {0};
 	elix_file_open(&file, filename, EFF_FILE_READ);
@@ -1691,12 +1699,12 @@ uint32_t fg_build_ninja(CompilerInfo * target, CurrentConfiguration * options, c
 	char compiler_common_file[128] = "./config/$platform-$arch-$compiler-$buildmode.txt";
 	char compiler_file[128] = "./config/$platform-$arch-$compiler.txt";
 
+	char * program_name = get_configmap(&options->options, "name");
+
 	update_string_from_compilerinfo(platform_file, 128, target);
 	update_string_from_compilerinfo(arch_file, 128, target);
 	update_string_from_compilerinfo(compiler_file, 128, target);
 	update_string_from_compilerinfo(compiler_common_file, 128, target);
-
-
 
 	//Read Default
 	parse_txtcfg("./config/default.txt", options, target);
@@ -1705,14 +1713,6 @@ uint32_t fg_build_ninja(CompilerInfo * target, CurrentConfiguration * options, c
 	parse_txtcfg(arch_file, options, target);
 	parse_txtcfg(compiler_common_file, options, target);
 	parse_txtcfg(compiler_file, options, target);
-
-/*
-	if ( find_configmap(&options->options, "DEBUG") != SIZE_MAX || find_configmap(&options->options, "debug") != SIZE_MAX ) {
-		push_configlist(&options->flags, "-g3");
-		push_configlist(&options->lib_flags, "-g3");
-		push_configlist(&options->defines, "_DEBUG");
-	}
-*/
 
 	for (size_t i = 0; i < ARRAY_SIZE(ini_list); i++) {
 		join_config_option(&ini_list[i]);
@@ -1724,7 +1724,7 @@ uint32_t fg_build_ninja(CompilerInfo * target, CurrentConfiguration * options, c
 		char * buffer = get_configmap(&options->options, "linker");
 		if ( elix_cstring_has_suffix(buffer, "gcc") || elix_cstring_has_suffix(buffer, "gcc.exe")) {
 			LOG_INFO("\tUsing -static-libstdc++ requires using g++ instead of gcc as linker.");
-			elix_cstring_inreplace(buffer, 128, "gcc", "g++");
+			elix_cstring_inreplace(buffer, 128, "gcc", "g++", 1);
 		}
 	}
 
@@ -1742,6 +1742,21 @@ uint32_t fg_build_ninja(CompilerInfo * target, CurrentConfiguration * options, c
 	elix_file_write_formatted(&file, "compiler_includes = %s\n", ini_list[JCO_INCLUDE].buffer);
 	elix_file_write_formatted(&file, "compller_defines = %s\n", ini_list[JCO_DEFINES].buffer);
 	elix_file_write_string_from_compilerinfo(&file, "compiler_mode = $mode\n", target);
+
+	if ( find_configmap(&options->options, "cppStandard") != SIZE_MAX ) {
+		elix_file_write_formatted(&file, "compiler_cpp_flags = --std=%s\n", get_configmap(&options->options, "cppStandard"));
+	}
+	if ( find_configmap(&options->options, "cStandard") != SIZE_MAX ) {
+		elix_file_write_formatted(&file, "compiler_c_flags = --std=%s\n", get_configmap(&options->options, "cStandard"));
+	}
+
+	if ( find_configmap(&options->options, "program_executable") != SIZE_MAX ) {
+		elix_file_write_formatted(&file, "program_executable = %s\n", get_configmap(&options->options, "program_executable"));
+	} else {
+		elix_file_write_formatted(&file, "program_executable = %s\n", program_name);
+	}
+
+	
 
 	elix_file_write_formatted(&file, "finaliser_flags = %s\n", ini_list[JCO_FINAL_FLAGS].buffer);
 
@@ -1772,15 +1787,15 @@ uint32_t fg_build_ninja(CompilerInfo * target, CurrentConfiguration * options, c
 	}
 
 	elix_file_write_formatted(&file, "rule %s\n", "build_genscript");
-	elix_file_write_formatted(&file, "  command = %s\n", "gcc genscript.c -o genscript.exe");
+	elix_file_write_formatted(&file, "  command = %s\n", "gcc genscript.c -o gsb.exe");
 	elix_file_write_formatted(&file, "  description = [%s] $in\n\n", "Build Script Generator");
 
 	elix_file_write_formatted(&file, "rule %s\n", "run_genscript");
-	elix_file_write_formatted(&file, "  command = %s\n", "./genscript.exe DEBUG");
+	elix_file_write_formatted(&file, "  command = %s\n", "./gsb.exe");
 	elix_file_write_formatted(&file, "  description = [%s] $in\n\n", "Run Build Script Generator");
 
 	elix_file_write_formatted(&file, "rule %s\n", "run_program");
-	elix_file_write_formatted(&file, "  command = %s\n", "${binary_prefix}program${binary_suffix}${program_suffix}");
+	elix_file_write_formatted(&file, "  command = %s\n", "${binary_prefix}${program_executable}${binary_suffix}${program_suffix}");
 	elix_file_write_formatted(&file, "  description = [%s] $in\n\n", "Run");
 
 
@@ -1791,7 +1806,7 @@ uint32_t fg_build_ninja(CompilerInfo * target, CurrentConfiguration * options, c
 	elix_file_write_string(&file, "\n", 1);
 	elix_file_write_string(&file, "#Files\n", 0);
 
-	char * program_name = get_configmap(&options->options, "name");
+	
 
 	char objects[6144] = {0};
 	char resources[6144] = {0};
@@ -1834,6 +1849,7 @@ uint32_t fg_build_ninja(CompilerInfo * target, CurrentConfiguration * options, c
 		uint8_t linking_method = parse_filelist(options->modules.value[j], &options->files, &options->modules, &link_objects);
 	
 		char * current_name = j == 0 ? program_name : options->modules.value[j];
+		elix_file_write_formatted(&file, "#Module: %s [%x]\n", options->modules.value[j], linking_method);
 		for (; i < options->files.current; i++){
 			for (size_t var = 5; var < ARRAY_SIZE(ninja_extension_output); var ++) {
 				if ( !ninja_extension_output[var].stage[0] ) {
@@ -1906,11 +1922,13 @@ uint32_t fg_build_ninja(CompilerInfo * target, CurrentConfiguration * options, c
 	elix_file_write_string(&file, "\n", 1);
 	
 	if ( find_configmap(&options->options, "finaliser") != SIZE_MAX ) {
+		elix_file_write_formatted(&file, "#Finaliser Step\n");
 		elix_file_write_formatted(&file, ninja_extension_output[2].content, program_name, program_name);
 	} else {
 
 	}
 
+	elix_file_write_formatted(&file, "####################################\n");
 	elix_file_write_formatted(&file, "default %s\n", defaults);
 	elix_file_close(&file);
 
@@ -1974,7 +1992,7 @@ uint32_t fg_build_shellscript(CompilerInfo * target, CurrentConfiguration * opti
 	{
 		char * buffer = get_configmap(&options->options, "linker");
 		LOG_INFO("\tUsing -static-libstdc++ requires using g++ instead of gcc as linker.");
-		elix_cstring_inreplace(buffer, 128, "gcc", "g++");
+		elix_cstring_inreplace(buffer, 128, "gcc", "g++",0);
 	}
 
 
@@ -2099,7 +2117,6 @@ uint32_t fg_build_shellscript(CompilerInfo * target, CurrentConfiguration * opti
 					
 					size_t p = elix_cstring_find_last_of(no_src_dir, "/", 1 );
 					if ( p != SIZE_MAX ) {
-
 						no_src_dir[p] = 0; // NOTE: Stupid piece of code
 						if ( !elix_cstring_match( last_directory, no_src_dir, 255) ) {
 							q = snprintf(format_buffer, 1024, "\tmkdir -p ${object_dir}%s\n", no_src_dir);
@@ -2248,9 +2265,8 @@ uint32_t fg_build_batch(CompilerInfo * target, CurrentConfiguration * options, c
 	if ( is_in_configlist(&options->lib_flags, "-static-libstdc++") ) {
 		char * buffer = get_configmap(&options->options, "linker");
 		LOG_INFO("\tUsing -static-libstdc++ requires using g++ instead of gcc as linker.");
-		elix_cstring_inreplace(buffer, 128, "gcc", "g++");
+		elix_cstring_inreplace(buffer, 128, "gcc", "g++", 0);
 	}
-
 
 	//Write
 	elix_file file;
@@ -2289,6 +2305,10 @@ uint32_t fg_build_batch(CompilerInfo * target, CurrentConfiguration * options, c
 	elix_file_write_string(&file, "\n", 1);
 
 	elix_file_write_string(&file, "goto Commands\n\n", 0);
+
+
+	elix_file_write_string(&file, ":run\n", 0);
+	elix_file_write_string(&file, "\techo \"TODO\"\n", 0);
 
 
 	elix_file_write_string(&file, ":clean_command\n", 0);
@@ -2564,7 +2584,7 @@ uint32_t scan_subdirectory( char * directory_path, elix_file * file) {
 void directory_to_module( const char * module_name, char * directory_path, linking_type lt) {
 	elix_file temp_file = {0};
 	char temp_filename[512] = "./config/modules/$module.txt";
-	elix_cstring_inreplace(temp_filename, 512, "$module", module_name);
+	elix_cstring_inreplace(temp_filename, 512, "$module", module_name, 0);
 						
 	if ( elix_file_open(&temp_file, temp_filename, EFF_FILE_TRUNCATE) == 0) {
 		LOG_INFO("%s", temp_filename);
@@ -2680,9 +2700,9 @@ void creeate_newproject(CompilerInfo * target, CurrentConfiguration *options) {
 	elix_file_close(&file);
 
 	for (size_t i = 0; i < ARRAY_SIZE(file_generator); i++) 	{
-		elix_cstring_inreplace(file_generator[i], 128, "$platform", target->os);
-		elix_cstring_inreplace(file_generator[i], 128, "$arch", target->arch);
-		elix_cstring_inreplace(file_generator[i], 128, "$compiler", target->compiler);
+		elix_cstring_inreplace(file_generator[i], 128, "$platform", target->os, 1);
+		elix_cstring_inreplace(file_generator[i], 128, "$arch", target->arch, 1);
+		elix_cstring_inreplace(file_generator[i], 128, "$compiler", target->compiler, 1);
 
 		file_generator_function[i](target, options, file_generator[i]);
 	}
@@ -2729,19 +2749,19 @@ void creeate_generator(CompilerInfo * target, CurrentConfiguration *options) {
 
 	LOG_INFO("Creating Directories");
 	for (size_t i = 0; i < ARRAY_SIZE(directories_generator); i++) 	{
-		elix_cstring_inreplace(directories_generator[i], 128, "$platform", target->os);
-		elix_cstring_inreplace(directories_generator[i], 128, "$arch", target->arch);
-		elix_cstring_inreplace(directories_generator[i], 128, "$compiler", target->compiler);
+		elix_cstring_inreplace(directories_generator[i], 128, "$platform", target->os, 1);
+		elix_cstring_inreplace(directories_generator[i], 128, "$arch", target->arch, 1);
+		elix_cstring_inreplace(directories_generator[i], 128, "$compiler", target->compiler, 1);
 
 		LOG_INFO("\t%s", directories_generator[i]);
 		elix_os_directory_make(directories_generator[i], 755, 1);
 	}
 
 	for (size_t i = 0; i < ARRAY_SIZE(file_generator); i++) 	{
-		elix_cstring_inreplace(file_generator[i], 128, "$platform", target->os);
-		elix_cstring_inreplace(file_generator[i], 128, "$arch", target->arch);
-		elix_cstring_inreplace(file_generator[i], 128, "$compiler", target->compiler);
-		elix_cstring_inreplace(file_generator[i], 128, "$mode", target->mode);
+		elix_cstring_inreplace(file_generator[i], 128, "$platform", target->os, 1);
+		elix_cstring_inreplace(file_generator[i], 128, "$arch", target->arch, 1);
+		elix_cstring_inreplace(file_generator[i], 128, "$compiler", target->compiler, 1);
+		elix_cstring_inreplace(file_generator[i], 128, "$mode", target->mode, 1);
 	
 		if ( i == batch_mode ) {
 			file_generator_function[i](target, options, file_generator[i]);
@@ -2775,9 +2795,9 @@ void creeate_newplatform(CompilerInfo * target, CurrentConfiguration *options) {
 
 	LOG_INFO("Creating Directories:");
 	for (size_t i = 0; i < ARRAY_SIZE(directories_generator); i++) 	{
-		elix_cstring_inreplace(directories_generator[i], 128, "$platform", target->os);
-		elix_cstring_inreplace(directories_generator[i], 128, "$arch", target->arch);
-		elix_cstring_inreplace(directories_generator[i], 128, "$compiler", target->compiler);
+		elix_cstring_inreplace(directories_generator[i], 128, "$platform", target->os, 1);
+		elix_cstring_inreplace(directories_generator[i], 128, "$arch", target->arch, 1);
+		elix_cstring_inreplace(directories_generator[i], 128, "$compiler", target->compiler, 1);
 
 		LOG_INFO("\t%s", directories_generator[i]);
 		elix_os_directory_make(directories_generator[i], 755, 1);
@@ -2785,16 +2805,40 @@ void creeate_newplatform(CompilerInfo * target, CurrentConfiguration *options) {
 
 	LOG_INFO("Creating Files");
 	for (size_t i = 0; i < ARRAY_SIZE(file_generator); i++) 	{
-		elix_cstring_inreplace(file_generator[i], 128, "$platform", target->os);
-		elix_cstring_inreplace(file_generator[i], 128, "$arch", target->arch);
-		elix_cstring_inreplace(file_generator[i], 128, "$compiler", target->compiler);
+		elix_cstring_inreplace(file_generator[i], 128, "$platform", target->os, 1);
+		elix_cstring_inreplace(file_generator[i], 128, "$arch", target->arch, 1);
+		elix_cstring_inreplace(file_generator[i], 128, "$compiler", target->compiler, 1);
 
 		LOG_INFO("\t%s", file_generator[i]);
 		file_generator_function[i](target, options, file_generator[i]);
 	}
+	}
 
+void creeate_editorfiles(CompilerInfo * target, CurrentConfiguration *options, uint32_t editor_id) {
+	char name[5] = UNPACK_ID(editor_id);
+
+
+	LOG_INFO("Creating Editor files for %s", name);
+
+	elix_file file;
+	for (size_t i = 0; i < ARRAY_SIZE(editor_files); i++) 	{
+		if (editor_files[i].id == editor_id) {
+			LOG_INFO("\t%s", editor_files[i].filename);
+			if ( elix_cstring_has_suffix(editor_files[i].filename, "/") ) {
+				elix_os_directory_make(editor_files[i].filename, 755, 1);
+			} else {
+				if ( elix_file_open(&file, editor_files[i].filename, EFF_FILE_NEW) == 0) {
+					elix_file_write_string(&file, editor_files[i].content, 0);
+				} else {
+					LOG_INFO("\t[Failed] %s", editor_files[i].filename);
+				}
+				elix_file_close(&file);
+			}
+		}
+	}
 
 }
+
 
 void bin_2_header( const char * source_file, const char * target_file, const char * variable_name ) {
 	uint8_t c;
@@ -2853,6 +2897,7 @@ void print_help(CompilerInfo * target) {
 	LOG_INFO(" -new\t\t\t - Create New Project");
 	LOG_INFO(" -platform\t\t - Add New Platform");
 	LOG_INFO(" -gen\t\t\t - Generate Build scripts");
+	LOG_INFO(" -editor\t\t\t - [Unfinished] Generate Editor files (Currently only for VSCode)");
 	LOG_INFO(" -c=\t\t\t - Binary to Header, via external command");
 	LOG_INFO(" example: ./genscript.exe -h=a.h -i=a.png.temp -c=\"picasso -o a.png.temp a.png\"");
 
@@ -2914,9 +2959,9 @@ uint32_t cli_check_input(CompilerInfo * target, CurrentConfiguration *options, c
 void cli_display(CompilerInfo * target, CurrentConfiguration *options, CLIMenu * menu, uint32_t menu_count) {
 	PRINT("============================================\n");
 	for (size_t i = 0; i < menu_count; i++) {
-		elix_cstring_inreplace(menu[i].title, 128, "$platform", target->os);
-		elix_cstring_inreplace(menu[i].title, 128, "$arch", target->arch);
-		elix_cstring_inreplace(menu[i].title, 128, "$compiler", target->compiler);
+		elix_cstring_inreplace(menu[i].title, 128, "$platform", target->os, 1);
+		elix_cstring_inreplace(menu[i].title, 128, "$arch", target->arch, 1);
+		elix_cstring_inreplace(menu[i].title, 128, "$compiler", target->compiler, 1);
 		PRINT(">%c. %s\n", menu[i].key, menu[i].title);
 	}
 	PRINT("============================================\n");
@@ -3008,8 +3053,12 @@ int main(int argc, char * argv[]) {
 			current_program_mode = PM_GEN;
 		} else if ( elix_cstring_has_prefix(argv[var],"-self") ) {
 			current_program_mode = PM_REBUILDSELF;
+		} else if ( elix_cstring_has_prefix(argv[var],"-editor") ) {
+			current_program_mode = PM_EDITORCONFIG;
 		} else if ( elix_cstring_has_prefix(argv[var],"-switch") ) {
 			current_program_mode = PM_SWITCH;
+		} else if ( elix_cstring_has_prefix(argv[var],"-ask") ) {
+			current_program_mode = PM_INTERACTIVE;
 		} else if ( elix_cstring_has_prefix(argv[var],"-c=") ) {
 			current_program_mode = PM_B2H;
 			push_configmap(&configuration.options, argv[var], 0);
@@ -3029,8 +3078,8 @@ int main(int argc, char * argv[]) {
 	if ( current_program_mode == PM_AUTO ) {
 		char check_platformarch[128] = "./config/$platform-$arch.txt";
 
-		elix_cstring_inreplace(check_platformarch, 128, "$platform", info.os);
-		elix_cstring_inreplace(check_platformarch, 128, "$arch", info.arch);
+		elix_cstring_inreplace(check_platformarch, 128, "$platform", info.os, 1);
+		elix_cstring_inreplace(check_platformarch, 128, "$arch", info.arch, 1);
 
 		elix_file file_check;
 		if ( elix_file_open(&file_check, "./config/default.txt", EFF_FILE_READ) != 0) {
@@ -3049,8 +3098,11 @@ int main(int argc, char * argv[]) {
 		print_auto_message(&info);
 	}
 
-	
 	switch (current_program_mode) {
+		case PM_EDITORCONFIG:
+			LOG_INFO("---- [Generating Editor Files] ----");
+			creeate_editorfiles(&info, &configuration, PACK_ID('V','S','C','o'));
+			break;
 		case PM_UPDATEMODULE:
 			LOG_INFO("---- [Update Modules] ----");
 			fg_defaultfilelist(&info, &configuration, "./config/modules/base.txt");
