@@ -11,10 +11,10 @@
 *************************************************************************/
 //TODO: Fix Complier selection
 
-#define GENSCRIPT_VERSION 20250305
+#define GENSCRIPT_VERSION 20250705
 
-//#define SOURCE_DIRECTORY "src"
-#define SOURCE_DIRECTORY "source"
+#define SOURCE_DIRECTORY "src"
+//#define SOURCE_DIRECTORY "source"
 #define DEFAULT_BUILD_MODE "debug" //"release"
 
 #include <stdio.h>
@@ -935,6 +935,7 @@ typedef struct {
 
 static char config_arch_text[512] = "[defines]\n\
 PLATFORM_BITS=$bits\n\
+[options]\n\
 compiler=$tripletgcc\n\
 linker=$tripletgcc\n\
 static_linker=ar -rc\n\
@@ -973,7 +974,7 @@ static CompilerConfigOption compiler_debug_options[8] = {
 	{"gcc", "-ggdb3", "-ggdb3 ", "_DEBUG"},
 	{"gcc-full", "-ggdb3 -fsanitize=address,undefined -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer -fasynchronous-unwind-tables", 
 	"-ggdb3 -fsanitize=address,undefined -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer -fasynchronous-unwind-tables", "_DEBUG"},
-        {"clang", "-ggdb3", "-ggdb3 ", "_DEBUG"},
+	{"clang", "-ggdb3", "-ggdb3 ", "_DEBUG"},
 };
 
 static ExtensionOutput ninja_extension_output[32] = {
@@ -983,6 +984,7 @@ static ExtensionOutput ninja_extension_output[32] = {
 	{"resource_stage", "", "build ${object_dir}/resources: build_resources %s\n"},
 	{"final_stage", "", "build %s${binary_suffix}${finalise_suffix}: finalise %s${binary_suffix}${program_suffix}\n"},
 	{"cpp", "o", "build ${object_dir}%s.%s: compile_cpp %s.cpp\n"},
+	{"cc", "o", "build ${object_dir}%s.%s: compile_cpp %s.cc\n"}, // .cc is used for C-style C++ code
 	{"c", "o", "build ${object_dir}%s.%s: compile_c %s.c\n"},
 	{ "", "", ""}
 };
@@ -994,6 +996,7 @@ static ExtensionOutput bash_extension_output[32] = {
 	{"resource_stage", "", "TODO\n"},
 	{"final_stage", "", "TODO\n"},
 	{"cpp", "o", "\t${compiler} ${compiler_includes} ${compller_defines} ${compiler_cpp_flags} ${compiler_flags} -o ${object_dir}%s.%s -c %s.cpp\n"},
+	{"cc", "o", "\t${compiler} ${compiler_includes} ${compller_defines} ${compiler_cpp_flags} ${compiler_flags} -o ${object_dir}%s.%s -c %s.cc\n"}, // .cc is used for C-style C++ code
 	{"c", "o", "\t${compiler} ${compiler_includes} ${compller_defines} ${compiler_c_flags} ${compiler_flags} -o ${object_dir}%s.%s -c %s.c\n"},
 	{ "", "", ""}
 };
@@ -1004,6 +1007,7 @@ static ExtensionOutput batch_extension_output[32] = {
 	{"resource_stage", "", "TODO\n"},
 	{"final_stage", "", "TODO\n"},
 	{"cpp", "o", "\t%%compiler%% %%compiler_includes%% %%compller_defines%% %%compiler_flags%% -o %%object_dir%%%s.%s -c %s.cpp\n"},
+	{"cc", "o", "\t%%compiler%% %%compiler_includes%% %%compller_defines%% %%compiler_flags%% -o %%object_dir%%%s.%s -c %s.cc\n"}, // .cc is used for C-style C++ code
 	{"c", "o", "\t%%compiler%% %%compiler_includes%% %%compller_defines%% %%compiler_flags%% -o %%object_dir%%%s.%s -c %s.c\n"},
 	{ "", "", ""}
 };
@@ -1017,7 +1021,11 @@ static PlatformConfig config_platform_text[] = {
 static EditorFile editor_files[] = {
 	{PACK_ID('V','S','C','o'), ".vscode/", ""},
 	{PACK_ID('V','S','C','o'), ".vscode/tasks.json", "{\n\t\"version\": \"2.0.0\",\n\t\"tasks\":[\n\t\t{\n\t\t\t\"type\": \"shell\",\n\t\t\t\"label\": \"Build All\",\n\t\t\t\"command\": \"ninja\",\n\t\t\t\"problemMatcher\": [\n\t\t\t\t\"$gcc\"\n\t\t\t],\n\t\t\t\"group\": {\n\t\t\t\t\"kind\": \"build\",\n\t\t\t\t\"isDefault\": true\n\t\t\t}\n\t\t},\n\t\t{\n\t\t\t\"type\": \"shell\",\n\t\t\t\"label\": \"Reconfig\",\n\t\t\t\"command\": \"./gsb.exe\",\n\t\t\t\"group\": {\n\t\t\t\t\"kind\": \"build\",\n\t\t\t\t\"isDefault\": false\n\t\t\t}\n\t\t}\n\t\t]\n\t\n}"},
-	{PACK_ID('V','S','C','o'), ".vscode/settings.json", "{\n\t\"triggerTaskOnSave.on\": true,\n\t\"triggerTaskOnSave.tasks\": {\n\t\t\"Build All\": [\n\t\t\t\"*.c\",\n\t\t\t\"*.h\",\n\t\t\t\"*.cpp\",\n\t\t\t\"*.hpp\",\n\t\t],\n\t\t\"Reconfig\": [\n\t\t\t\"*.txt\",\n\t\t],\n\t},\n}"},
+	{PACK_ID('V','S','C','o'), ".vscode/settings.json", "{\n\t\"triggerTaskOnSave.on\": true,\n\t\"triggerTaskOnSave.tasks\": {\n\t\t\"Build All\": [\n\t\t\t\"*.c\",\n\t\t\t\"*.cc\",\n\t\t\t\"*.h\",\n\t\t\t\"*.cpp\",\n\t\t\t\"*.hpp\",\n\t\t],\n\t\t\"Reconfig\": [\n\t\t\t\"*.txt\",\n\t\t],\n\t},\n}"},
+	{PACK_ID('V','S','C','o'), ".vscode/launch.json", "{\n\t\"version\": \"0.2.0\",\n\t\"configurations\": [\n\t\t{\n\t\t\t\"name\":\"Debug\",\n\t\t\t\"type\":\"cppdbg\",\n\t\t\t\"request\": \"launch\",\n\t\t\t\"cwd\": \"${workspaceRoot}\",\n\t\t\t\"program\": \"${workspaceRoot}/bin/bookish-debug-linux-x86_64\"\n\t\t}\n\t]\n}\n" },
+
+
+
 };
 
 /* genscript enum & struct */
@@ -1744,10 +1752,10 @@ uint32_t fg_build_ninja(CompilerInfo * target, CurrentConfiguration * options, c
 	elix_file_write_string_from_compilerinfo(&file, "compiler_mode = $mode\n", target);
 
 	if ( find_configmap(&options->options, "cppStandard") != SIZE_MAX ) {
-		elix_file_write_formatted(&file, "compiler_cpp_flags = --std=%s\n", get_configmap(&options->options, "cppStandard"));
+		elix_file_write_formatted(&file, "compiler_cpp_flags = -std=%s\n", get_configmap(&options->options, "cppStandard"));
 	}
 	if ( find_configmap(&options->options, "cStandard") != SIZE_MAX ) {
-		elix_file_write_formatted(&file, "compiler_c_flags = --std=%s\n", get_configmap(&options->options, "cStandard"));
+		elix_file_write_formatted(&file, "compiler_c_flags = -std=%s\n", get_configmap(&options->options, "cStandard"));
 	}
 
 	if ( find_configmap(&options->options, "program_executable") != SIZE_MAX ) {
@@ -2812,11 +2820,10 @@ void creeate_newplatform(CompilerInfo * target, CurrentConfiguration *options) {
 		LOG_INFO("\t%s", file_generator[i]);
 		file_generator_function[i](target, options, file_generator[i]);
 	}
-	}
+}
 
 void creeate_editorfiles(CompilerInfo * target, CurrentConfiguration *options, uint32_t editor_id) {
 	char name[5] = UNPACK_ID(editor_id);
-
 
 	LOG_INFO("Creating Editor files for %s", name);
 
