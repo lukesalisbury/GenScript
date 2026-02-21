@@ -1013,7 +1013,7 @@ static ExtensionOutput batch_extension_output[32] = {
 };
 
 static PlatformConfig config_platform_text[] = {
-	{ 0, "Default", "[libs]\nstdc++\nm\n[lib_flags]\n-std=c++11\n\n[includes]\n[flags]\n-std=c++11\n[defines]\nPLATFORM_$PLATFORM\n[linker_flags]\n-Wl,-rpath -Wl,\\$$ORIGIN/lib\n"},
+	{ 0, "Default", "[libs-cpp]\nstdc++\n[libs]\nm\n[lib_flags]\n[includes]\n[flags]\n[defines]\nPLATFORM_$PLATFORM\n[linker_flags]\n-Wl,-rpath -Wl,\\$$ORIGIN/lib\n"},
 	{ 0x6986d1e1, "3DS", "[libs]\nstdc++\nm\nctru\ncitro3d\n[lib_flags]\n-std=c++11\n-march=armv6k\n-mtune=mpcore\n-mfloat-abi=hard\n-mtp=soft\n-specs=3dsx.specs\n-L\"/opt/devkitpro/devkitARM/lib\"\n-L\"/opt/devkitpro/libctru/lib\"\n[includes]\n\"/opt/devkitpro/devkitARM/arm-none-eabi/include\"\n\"/opt/devkitpro/libctru/include\"\n[flags]\n-std=c++11\n-march=armv6k\n-mtune=mpcore\n-mfloat-abi=hard\n[defines]\nPLATFORM_3DS\nPLATFORM_BITS=32\nARM11\n[commands]\nfinalise=${finaliser} $in  $out ${finalise_flags}\nbuild_smdh=smdhtool --create -o $out\nbuild_pica=./genscript.exe -h=$out -i=$in.temp -c=\"picasso -o $in.temp $in\"\n[extension]\npica=h;build res/%s.h: build_pica %s.pica\n"}
 };
 
