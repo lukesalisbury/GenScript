@@ -1,9 +1,16 @@
+
 # GenScript
 Configure Simple Builds system
-
 Reads files from ./config/ to produce configurations for ninja builds
 
 ## Stages
+First you have to compile genscript.c.
+
+`gcc genscript.c -o gsb.exe` or `clang genscript.c -o gsb.exe`
+
+Then run gsb.exe (Note: It's called gsb.exe on all platform, so we can do a single command on Windows)
+
+Calling gsb.exe with no argument, will step through the following stages:
 
 ### New Project (-new)
 This stage create the basic directories and initial config files
@@ -21,13 +28,14 @@ File Created:
 - ./config/modules/base.txt - See Modules for details
 
 ### New Platform (-platform)
-Reads system information to create configurations files for the current platform. Platform can be overwrite by setting the environment values PLATFORM, PLATFORM_ARCH, PLATFORM_COMPILER before genscript
-example: PLATFORM=Linux genscript.exe
+Reads system information to create configurations files for the current platform. 
+Platform can be overwrite by setting the following arguments: PLATFORM, PLATFORM_ARCH, PLATFORM_COMPILER, RELEASE, DEBUG
+
+example: `./gsb.exe PLATFORM=Linux RELEASE`
 
 File Created:
 - ./config/$platform-$arch.txt
 - ./config/$platform-common.txt
-
 
 ### Generate Build Script (-gen)
 Creates build scripts base on current platform. It will replace the ./build.ninja file with a link to ./compile/$platform-$arch/build.ninja
@@ -36,7 +44,8 @@ Creates build scripts base on current platform. It will replace the ./build.ninj
 Configuration are stored in INI format files.
 
 Example:
-`[defines]
+```
+[defines]
 PLATFORM_BITS=64
 [options]
 compiler=gcc
@@ -74,8 +83,32 @@ link=${linker} ${compiler_lib_flags} $in -o ${binary_prefix}$out ${compiler_lib}
 finalise=${finaliser} ${finalise_flags} $in -o ${binary_prefix}$out
 build_resources=echo
 clean=rm -rf ${object_dir}
-`
+```
 
 ## Modules
 List of file names to be compiled and linked. By default the base.txt file is used, but other modules can be include by prefix the filename without extension with #.
-Modules can also be build as Static or Shared Libraries by having the first line of the file start with $static ot $shared
+
+Modules can also be build as Static or Shared Libraries by having the first line of the file start with $static or $shared
+
+## Extras
+```
+./gsb.exe --help PLATFORM=windows RELEASE
+Configure Simple Builds system
+Reads files from ./config/ to produce configurations for ninja builds
+Target: windows-x86_64 on gcc compiler [release mode]
+System: linux-x86_64 on gcc compiler [debug mode]
+Command Argument:
+ -batch			 - Create Batch/Shell script instead of Ninja Build (Not fully supported)
+ -new			 - Create New Project
+ -platform		 - Add New Platform
+ -gen			 - Generate Build scripts
+ -editor			 - [Unfinished] Generate Editor files (Currently only for VSCode)
+ -c=			 - Binary to Header, via external command
+ example: ./gsb.exe -h=a.h -i=a.png.temp -c="picasso -o a.png.temp a.png"
+Set Target options with arguments:
+	PLATFORM={os}
+	PLATFORM_ARCH={arch}
+	PLATFORM_COMPILER={compiler}
+	TARGET_TRIPLET={compiler_prefix} aka 'x86_64-w64-mingw32-'
+	RELEASE or DEBUG
+```
