@@ -1609,6 +1609,10 @@ uint32_t parse_txtcfg( const char * filename, CurrentConfiguration * options, Co
 				write_mode = 1;
 				write_options = &options->final_flags;
 				write_map = nullptr;
+			} else if ( elix_cstring_has_prefix(data,"[linker_flags]") ) {
+				write_mode = 1;
+				write_options = &options->linker_flags;
+				write_map = nullptr;
 			} else if ( elix_cstring_has_prefix(data,"[flags]") ) {
 				write_mode = 1;
 				write_options = &options->flags;
@@ -1702,8 +1706,7 @@ uint32_t fg_build_ninja(CompilerInfo * target, CurrentConfiguration * options, c
 		{ "%s ", &options->lib_flags, nullptr, nullptr},
 		{ "%s ", &options->final_flags, nullptr, nullptr},
 		{ "-I%s ", &options->includes, "-I", nullptr},
-		{ "%s ", &options->linker_flags, "-I", nullptr},
-		
+		{ "%s ", &options->linker_flags, nullptr, nullptr},
 	};
 	char platform_file[128] = "./config/$platform-common.txt";
 	char arch_file[128] = "./config/$platform-$arch.txt";
@@ -1966,7 +1969,7 @@ uint32_t fg_build_shellscript(CompilerInfo * target, CurrentConfiguration * opti
 		{ "%s ", &options->lib_flags, nullptr, nullptr},
 		{ "%s ", &options->final_flags, nullptr, nullptr},
 		{ "-I%s ", &options->includes, "-I", nullptr},
-		{ "%s ", &options->linker_flags, "-I", nullptr},
+		{ "%s ", &options->linker_flags, nullptr, nullptr},
 	};
 	char platform_file[128] = "./config/$platform-common.txt";
 	char arch_file[128] = "./config/$platform-$arch.txt";
@@ -2245,6 +2248,7 @@ uint32_t fg_build_batch(CompilerInfo * target, CurrentConfiguration * options, c
 		{ "%s ", &options->lib_flags, nullptr, nullptr},
 		{ "%s ", &options->final_flags, nullptr, nullptr},
 		{ "-I%s ", &options->includes, "-I", nullptr},
+		{ "%s ", &options->linker_flags, nullptr, nullptr},
 	};
 	char platform_file[128] = "./config/$platform-common.txt";
 	char arch_file[128] = "./config/$platform-$arch.txt";
