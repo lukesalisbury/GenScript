@@ -11,7 +11,7 @@
 *************************************************************************/
 //TODO: Fix Complier selection
 
-#define GENSCRIPT_VERSION 20260425 // Changes: Forgot about include linker flags when creating build scripts
+#define GENSCRIPT_VERSION 20260601 // Changes: Increase buffer size for defaults list
 
 #define SOURCE_DIRECTORY "src"
 //#define SOURCE_DIRECTORY "source"
@@ -1825,7 +1825,7 @@ uint32_t fg_build_ninja(CompilerInfo * target, CurrentConfiguration * options, c
 
 	char objects[6144] = {0};
 	char resources[6144] = {0};
-	char defaults[256] = {0};
+	char defaults[1024] = {0};
 
 	if ( options->resources.current ) {
 		for (size_t i = 0; i < options->resources.current; i++){
@@ -1854,7 +1854,7 @@ uint32_t fg_build_ninja(CompilerInfo * target, CurrentConfiguration * options, c
 
 		}
 		elix_file_write_formatted(&file, ninja_extension_output[3].content, resources);
-		elix_cstring_append(defaults, 255, "${object_dir}/resources ", 24);
+		elix_cstring_append(defaults, 1023, "${object_dir}/resources ", 24);
 	}
 
 	//parse_filelist("base", &options->files, &options->modules);
@@ -1903,16 +1903,16 @@ uint32_t fg_build_ninja(CompilerInfo * target, CurrentConfiguration * options, c
 				LOG_INFO("\tStatic Lib: %s", current_name);
 				elix_file_write_formatted(&file, ninja_extension_output[2].content, current_name, objects,current_name,current_name);
 		
-				elix_cstring_append(defaults, 255, current_name, elix_cstring_length(current_name, 0));
-				elix_cstring_append(defaults, 255, "${binary_suffix}${static_suffix} ", 34);
+				elix_cstring_append(defaults, 1023, current_name, elix_cstring_length(current_name, 0));
+				elix_cstring_append(defaults, 1023, "${binary_suffix}${static_suffix} ", 34);
 
 				break;
 			case LT_SHARED:
 				LOG_INFO("\tShared Lib: %s", current_name);
 				elix_file_write_formatted(&file, ninja_extension_output[1].content, current_name, objects);
 
-				elix_cstring_append(defaults, 255, current_name, elix_cstring_length(current_name, 0));
-				elix_cstring_append(defaults, 255, "${binary_suffix}${shared_suffix} ", 34);
+				elix_cstring_append(defaults, 1023, current_name, elix_cstring_length(current_name, 0));
+				elix_cstring_append(defaults, 1023, "${binary_suffix}${shared_suffix} ", 34);
 
 				break;
 			case LT_SKIP:
@@ -1926,8 +1926,8 @@ uint32_t fg_build_ninja(CompilerInfo * target, CurrentConfiguration * options, c
 
 				elix_file_write_formatted(&file, ninja_extension_output[0].content, current_name, objects);
 				
-				elix_cstring_append(defaults, 255, current_name, elix_cstring_length(current_name, 0));
-				elix_cstring_append(defaults, 255, "${binary_suffix}${program_suffix} ", 35);
+				elix_cstring_append(defaults, 1023, current_name, elix_cstring_length(current_name, 0));
+				elix_cstring_append(defaults, 1023, "${binary_suffix}${program_suffix} ", 35);
 				break;
 		}
 		elix_file_write_string(&file, "\n", 1);
@@ -2095,7 +2095,7 @@ uint32_t fg_build_shellscript(CompilerInfo * target, CurrentConfiguration * opti
 
 		}
 		elix_file_write_formatted(&file, ninja_extension_output[3].content, resources);
-		elix_cstring_append(defaults, 255, "${object_dir}/resources ", 24);
+		elix_cstring_append(defaults, 1023, "${object_dir}/resources ", 24);
 	}
 	*/
 
@@ -2369,7 +2369,7 @@ uint32_t fg_build_batch(CompilerInfo * target, CurrentConfiguration * options, c
 
 		}
 		elix_file_write_formatted(&file, ninja_extension_output[3].content, resources);
-		elix_cstring_append(defaults, 255, "${object_dir}/resources ", 24);
+		elix_cstring_append(defaults, 1023, "${object_dir}/resources ", 24);
 	}
 	*/
 
