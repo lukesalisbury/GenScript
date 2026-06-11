@@ -11,7 +11,7 @@
 *************************************************************************/
 //TODO: Fix Complier selection
 
-#define GENSCRIPT_VERSION 20260601 // Changes: Increase buffer size for defaults list
+#define GENSCRIPT_VERSION 20260611 // Changes: Increased Buffer sizes. Package config now only includes unique values
 
 #define SOURCE_DIRECTORY "src"
 //#define SOURCE_DIRECTORY "source"
@@ -179,6 +179,9 @@ size_t elix_cstring_append( char * str, const size_t len, const char * text, con
 	// TODO: Switch to memcpy
 	for (size_t c = 0;length < len && c < text_len; length++, c++) {
 		str[length] = text[c];
+	}
+	if ( length >= len ){
+		LOG_INFO("elix_cstring_append reached the end of the buffer.");
 	}
 	str[length] = 0;
 	return length;
@@ -399,10 +402,10 @@ char * elix_cstring_merge( char ** source_array, char token) {
 }
 
 char ** elix_cstring_split( const char * source, char token, char string_bracket) {
-	#define token_cache 8
+	#define TOKEN_CACHE 32
 	size_t source_len = elix_cstring_length(source, 0);
 	size_t tokens = 0;
-	size_t position[token_cache] = {0};
+	size_t position[TOKEN_CACHE] = {0};
 	size_t maxlength = 0, last_token = 0;
 	uint8_t outside_string = 1;
 	for (size_t i = 0; i < source_len; i++)	{
@@ -410,7 +413,7 @@ char ** elix_cstring_split( const char * source, char token, char string_bracket
 			if ( outside_string ) {
 				maxlength = (i - last_token) > maxlength ? (i - last_token) : maxlength;
 				last_token = i;
-				if (tokens < token_cache ) {
+				if (tokens < TOKEN_CACHE ) {
 					position[tokens] = last_token + 1;
 				}
 				tokens++;
@@ -422,10 +425,15 @@ char ** elix_cstring_split( const char * source, char token, char string_bracket
 	position[tokens] = source_len+1;
 	tokens++;
 
-	char ** output = malloc((tokens+1) * sizeof(char *));
-	if (tokens > token_cache ) {
+	char ** output = nullptr;
+	if (tokens > TOKEN_CACHE ) {
 		//TODO
+		LOG_INFO("Split found %zd tokens, only has room for %zd", tokens, TOKEN_CACHE);
 	} else {
+		output = malloc((tokens+1) * sizeof(char *));
+		if (!output) {
+			LOG_INFO("malloc failed in elix_cstring_split");
+		}
 		last_token = 0;
 		for (size_t i = 0; i < tokens; i++)	{
 			output[i] = elix_cstring_from(source + last_token, "", position[i] - last_token);
@@ -435,7 +443,7 @@ char ** elix_cstring_split( const char * source, char token, char string_bracket
 		output[tokens] = nullptr;
 	}
 	return output;
-	#undef token_cache
+	#undef TOKEN_CACHE
 }
 
 size_t elix_cstring_dequote( char * string ) {
@@ -1023,10 +1031,14 @@ static EditorFile editor_files[] = {
 	{PACK_ID('V','S','C','o'), ".vscode/tasks.json", "{\n\t\"version\": \"2.0.0\",\n\t\"tasks\":[\n\t\t{\n\t\t\t\"type\": \"shell\",\n\t\t\t\"label\": \"Build All\",\n\t\t\t\"command\": \"ninja\",\n\t\t\t\"problemMatcher\": [\n\t\t\t\t\"$gcc\"\n\t\t\t],\n\t\t\t\"group\": {\n\t\t\t\t\"kind\": \"build\",\n\t\t\t\t\"isDefault\": true\n\t\t\t}\n\t\t},\n\t\t{\n\t\t\t\"type\": \"shell\",\n\t\t\t\"label\": \"Reconfig\",\n\t\t\t\"command\": \"./gsb.exe\",\n\t\t\t\"group\": {\n\t\t\t\t\"kind\": \"build\",\n\t\t\t\t\"isDefault\": false\n\t\t\t}\n\t\t}\n\t\t]\n\t\n}"},
 	{PACK_ID('V','S','C','o'), ".vscode/settings.json", "{\n\t\"triggerTaskOnSave.on\": true,\n\t\"triggerTaskOnSave.tasks\": {\n\t\t\"Build All\": [\n\t\t\t\"*.c\",\n\t\t\t\"*.cc\",\n\t\t\t\"*.h\",\n\t\t\t\"*.cpp\",\n\t\t\t\"*.hpp\",\n\t\t],\n\t\t\"Reconfig\": [\n\t\t\t\"*.txt\",\n\t\t],\n\t},\n}"},
 	{PACK_ID('V','S','C','o'), ".vscode/launch.json", "{\n\t\"version\": \"0.2.0\",\n\t\"configurations\": [\n\t\t{\n\t\t\t\"name\":\"Debug\",\n\t\t\t\"type\":\"cppdbg\",\n\t\t\t\"request\": \"launch\",\n\t\t\t\"cwd\": \"${workspaceRoot}\",\n\t\t\t\"program\": \"${workspaceRoot}/bin/bookish-debug-linux-x86_64\"\n\t\t}\n\t]\n}\n" },
-
-
-
 };
+
+
+char genscript_temp_buffer[1024] = {0};
+#define TEMP_BUFFER_SIZE 1024
+#define RESET_TEMP_BUFFER() genscript_temp_buffer[0] = 0;
+
+
 
 /* genscript enum & struct */
 typedef struct {
@@ -1167,22 +1179,24 @@ void push_configmap(ConfigMap * map, const char * data, uint8_t overwrite) {
 	}
 }
 
-void pushunique_configlist(ConfigList * list, const char * data) {
+uint8_t pushunique_configlist(ConfigList * list, const char * data) {
 	if ( list->current < 254 ) {
 		size_t length = elix_cstring_length(data, 0);
 		uint8_t lookup_count = 0;
 		while (lookup_count < list->current ) {
 			if ( elix_cstring_match(data, list->value[lookup_count], 256) )
-				return;
+				return false;
 			lookup_count++;
 		}
 		elix_cstring_append(list->value[list->current], 256, data, length);
 		list->current++;
+		return true;
 	}
+	return false;
 }
 
 void push_configlist(ConfigList * list, const char * data) {
-	if (  list->current < 254 ) {
+	if ( list->current < 254 ) {
 		size_t length = elix_cstring_length(data, 0);
 		elix_cstring_append(list->value[list->current], 256, data, length);
 		list->current++;
@@ -1477,6 +1491,8 @@ uint8_t parse_filelist( const char * module, ConfigList * files, ConfigList * mo
 			
 			//LOG_INFO("%d %s", link_objects->current, link_objects->value[link_objects->current]);
 			link_objects->current++;
+		} else if ( elix_cstring_has_prefix(data, "[") ) {
+			LOG_INFO("[Unfinished] Module Option: '%s' - '%s'", module, data);
 		} else if ( elix_cstring_has_prefix(data, "//") ) {
 			
 		} else if ( elix_cstring_has_prefix(data, "$shared") ) {
@@ -1521,29 +1537,38 @@ void parse_package_linux( char data[256], CurrentConfiguration * options, Compil
 		&options->libs
 	};
 
-	char output[512] = {};
-	char package_name[16] = {};
-	elix_cstring_copy2(data, package_name, 15);
+	RESET_TEMP_BUFFER();
+	char package_name[32] = {};
+	elix_cstring_copy2(data, package_name, 31);
 
 	for ( uint8_t i = 0; i < 2;  i++) {
-		elix_os_command_capture( "pkg-config", output, 512, nullptr /*env*/, arguments[i], package_name, nullptr);
-		elix_cstring_trim(output);
+		elix_os_command_capture( "pkg-config", genscript_temp_buffer, TEMP_BUFFER_SIZE, nullptr /*env*/, arguments[i], package_name, nullptr);
+		size_t buffer_size = elix_cstring_trim(genscript_temp_buffer);
+		if ( buffer_size == TEMP_BUFFER_SIZE ) {
+			LOG_INFO("Temporary Buffer may have reached it limit.");
+		}
 
-		char ** split_arguments = elix_cstring_split( output, ' ', 0);
+		char ** split_arguments = elix_cstring_split( genscript_temp_buffer, ' ', 0);
 		if ( split_arguments ) {
 			size_t in = 0;
 			while (split_arguments[in]) {
-				LOG_INFO("Package %s, %s returned %s", package_name, arguments[i], split_arguments[in]);
-				push_configlist(config_index[i], split_arguments[in]);
+				//LOG_INFO("Package %s, %s returned %s", package_name, arguments[i], split_arguments[in]);
+				//push_configlist(config_index[i], split_arguments[in]);
+				if ( pushunique_configlist(config_index[i], split_arguments[in]) ) {
+					LOG_INFO("Package %s, %s returned %s", package_name, arguments[i], split_arguments[in]);
+				}
 				in++;
 			}
 			free(split_arguments);
 		} else {
-			LOG_INFO("Package %s, %s returned %s", package_name, arguments[i], output);
-			push_configlist(config_index[i], output);
+			//LOG_INFO("Package %s, %s returned %s", package_name, arguments[i], genscript_temp_buffer);
+			//push_configlist(config_index[i], genscript_temp_buffer);
+			if ( pushunique_configlist(config_index[i], genscript_temp_buffer) )  {
+				LOG_INFO("Package %s, %s returned %s", package_name, arguments[i], genscript_temp_buffer);
+			}
 		}
 
-		memset(output, 0, 512);
+		memset(genscript_temp_buffer, 0, TEMP_BUFFER_SIZE);
 	}
 }
 
@@ -1683,12 +1708,12 @@ size_t join_config_option( JoinConfigList * item) {
 	memset(item->buffer, 0, 1024);
 	
 	for (size_t i = 0; i < item->option->current; i++) {
-		char tempbuffer[128] = {0};
+		char tempbuffer[512] = {0};
 		if( item->skip_formatting_prefix && elix_cstring_has_prefix( item->option->value[i], item->skip_formatting_prefix) ) {
-			size_t q = snprintf(tempbuffer, 128, "%s ", item->option->value[i]);
+			size_t q = snprintf(tempbuffer, 512, "%s ", item->option->value[i]);
 			elix_cstring_append(item->buffer, 1024, tempbuffer, q);
 		} else {
-			size_t q = snprintf(tempbuffer, 128, item->formatting, item->option->value[i]);
+			size_t q = snprintf(tempbuffer, 512, item->formatting, item->option->value[i]);
 			elix_cstring_append(item->buffer, 1024, tempbuffer, q);
 		}
 	}
@@ -1729,7 +1754,10 @@ uint32_t fg_build_ninja(CompilerInfo * target, CurrentConfiguration * options, c
 	parse_txtcfg(compiler_file, options, target);
 
 	for (size_t i = 0; i < ARRAY_SIZE(ini_list); i++) {
-		join_config_option(&ini_list[i]);
+		size_t s = join_config_option(&ini_list[i]);
+		if (s > 1020 ) {
+			LOG_INFO("Possible Buffer Issue");
+		}
 	}
 
 	///NOTE: Workaround for -static-libstdc++ arg in libs
@@ -1802,7 +1830,7 @@ uint32_t fg_build_ninja(CompilerInfo * target, CurrentConfiguration * options, c
 	}
 
 	elix_file_write_formatted(&file, "rule %s\n", "build_genscript");
-	elix_file_write_formatted(&file, "  command = %s\n", "gcc genscript.c -o gsb.exe");
+	elix_file_write_formatted(&file, "  command = %s\n", "gcc -ggdb3 genscript.c -o gsb.exe");
 	elix_file_write_formatted(&file, "  description = [%s] $in\n\n", "Build Script Generator");
 
 	elix_file_write_formatted(&file, "rule %s\n", "run_genscript");
@@ -1815,7 +1843,8 @@ uint32_t fg_build_ninja(CompilerInfo * target, CurrentConfiguration * options, c
 
 
 	elix_file_write_string(&file, "\n", 1);
-	elix_file_write_string(&file, "build genscript: build_genscript\n", 0);
+	elix_file_write_string(&file, "build gsb: build_genscript\n", 0);
+	elix_file_write_string(&file, "build config: run_genscript\n", 0);
 	elix_file_write_string(&file, "build clean: clean\n", 0);
 	elix_file_write_string(&file, "build run: run_program\n", 0);
 	elix_file_write_string(&file, "\n", 1);
