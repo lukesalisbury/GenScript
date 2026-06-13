@@ -1,0 +1,11 @@
+[libs-cpp]
+stdc++
+[libs]
+m
+[lib_flags]
+[includes]
+[flags]
+[defines]
+PLATFORM_LINUX
+[linker_flags]
+-Wl,-rpath -Wl,\$$ORIGIN/lib

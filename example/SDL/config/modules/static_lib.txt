@@ -1,0 +1,2 @@
+$static
+./src/static_function.c
