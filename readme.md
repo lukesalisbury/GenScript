@@ -1,14 +1,13 @@
 
 # GenScript
-Configure Simple Builds system
-Reads files from ./config/ to produce configurations for ninja builds
+A Simple Build System on top of Ninja* that supporting multiple platforms.
 
 ## Stages
 First you have to compile genscript.c.
 
 `gcc genscript.c -o gsb.exe` or `clang genscript.c -o gsb.exe`
 
-Then run gsb.exe (Note: It's called gsb.exe on all platform, so we can do a single command on Windows)
+Then run gsb.exe (Note: It's called gsb.exe on all platform)
 
 Calling gsb.exe with no argument, will step through the following stages:
 
@@ -83,6 +82,7 @@ link=${linker} ${compiler_lib_flags} $in -o ${binary_prefix}$out ${compiler_lib}
 finalise=${finaliser} ${finalise_flags} $in -o ${binary_prefix}$out
 build_resources=echo
 clean=rm -rf ${object_dir}
+[pkg-linux]
 ```
 
 ## Modules
@@ -112,3 +112,5 @@ Set Target options with arguments:
 	TARGET_TRIPLET={compiler_prefix} aka 'x86_64-w64-mingw32-'
 	RELEASE or DEBUG
 ```
+---
+1. Has some limited support for creating batch file/Shell Script 
