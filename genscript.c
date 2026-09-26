@@ -11,8 +11,10 @@
 *************************************************************************/
 ///TODO: Fix Complier selection
 ///TODO: Check for overrun in elix_cstring_inreplace
+///TODO: Have Modules have different build flags
 
-#define GENSCRIPT_VERSION 20260706 // Changes: Some work on Compiler selection, and cross compiling. Need more testing on that.
+#include <stddef.h>
+#define GENSCRIPT_VERSION 20260926 // Changes: Limited support for module build flags such as '[lib] opengl'
 
 #define SOURCE_DIRECTORY "src"
 //#define SOURCE_DIRECTORY "source"
@@ -1439,7 +1441,7 @@ size_t elix_file_write_formatted( elix_file * file, const char * format, ... ) {
 	}
 	size_t written = 0;
 	va_list args;
-	char buffer[1024];
+	char buffer[1024] = {0};
 	va_start(args, format);
 	written = vfprintf( FH(file->handle), format, args);
 	va_end(args);
@@ -1493,7 +1495,78 @@ uint8_t scan_filelist( char * file_path, const char * module, ConfigList * files
 	return 0;
 }
 
-uint8_t parse_filelist( const char * module, ConfigList * files, ConfigList * module_list, ConfigList * link_objects) {
+uint8_t parse_optionheader( char * data, CurrentConfiguration * options, ConfigList ** write_options, ConfigMap ** write_map ) {
+	if ( elix_cstring_has_prefix(data,"[defines]") ) {
+		*write_options = &options->defines;
+		*write_map = nullptr;
+		return 1;
+	} else if ( elix_cstring_has_prefix(data,"[extension]") ) {
+		*write_options = nullptr;
+		*write_map = nullptr;
+		return 3;
+	} else if ( elix_cstring_has_prefix(data,"[files]") ) {
+		*write_options = &options->files;
+		*write_map = nullptr;
+		return 1;
+	} else if ( elix_cstring_has_prefix(data,"[resources]") ) {
+		*write_options = &options->resources;
+		*write_map = nullptr;
+		return 1;
+	} else if ( elix_cstring_has_prefix(data,"[lib_flags]") ) {
+		*write_options = &options->lib_flags;
+		*write_map = nullptr;
+		return 1;
+	} else if ( elix_cstring_has_prefix(data,"[compiler_flags]") ) {
+		*write_options = &options->flags;
+		*write_map = nullptr;
+		return 1;
+	} else if ( elix_cstring_has_prefix(data,"[final_flags]") ) {
+		*write_options = &options->final_flags;
+		*write_map = nullptr;
+		return 1;
+	} else if ( elix_cstring_has_prefix(data,"[linker_flags]") ) {
+		*write_options = &options->linker_flags;
+		*write_map = nullptr;
+		return 1;
+	} else if ( elix_cstring_has_prefix(data,"[flags]") ) {
+		*write_options = &options->flags;
+		*write_map = nullptr;
+		return 1;
+	} else if ( elix_cstring_has_prefix(data,"[includes]") ) {
+		*write_options = &options->includes;
+		*write_map = nullptr;
+		return 1;
+	} else if ( elix_cstring_has_prefix(data,"[libs]") ) {
+		*write_options = &options->libs;
+		*write_map = nullptr;
+		return 1;
+	} else if ( elix_cstring_has_prefix(data,"[options]") ) {
+		*write_options = nullptr;
+		*write_map = &options->options;
+		return 2;
+	} else if ( elix_cstring_has_prefix(data,"[options-") ) {
+		*write_options = nullptr;
+		*write_map = &options->options;
+		return 32;
+	} else if ( elix_cstring_has_prefix(data,"[commands]") ) {
+		*write_options = nullptr;
+		*write_map = &options->commands;
+		return 2;
+	} else if ( elix_cstring_has_prefix(data,"[commands-") ) {
+		*write_options = nullptr;
+		*write_map = &options->commands;
+		return 32;
+	} else if ( elix_cstring_has_prefix(data,"[pkg-") ) {
+		*write_options = nullptr;
+		*write_map = nullptr;
+		return 32;
+	}
+	*write_options = nullptr;
+	*write_map = nullptr;
+	return 0;
+}
+
+uint8_t parse_filelist( const char * module, ConfigList * files, ConfigList * module_list, ConfigList * link_objects, CurrentConfiguration * module_options, CompilerInfo * compiler) {
 	uint8_t link = LT_PROGRAM;
 	char filename[512] = "./config/modules/$module.txt";
 	uint8_t counter = 0;
@@ -1519,7 +1592,28 @@ uint8_t parse_filelist( const char * module, ConfigList * files, ConfigList * mo
 			//LOG_INFO("%d %s", link_objects->current, link_objects->value[link_objects->current]);
 			link_objects->current++;
 		} else if ( elix_cstring_has_prefix(data, "[") ) {
-			LOG_INFO("[Unfinished] Module Option: '%s' - '%s'", module, data);
+			char * value = nullptr;
+			ConfigList * write_options = nullptr;
+			ConfigMap * write_map = nullptr;
+
+			size_t index = elix_cstring_find_of(data, "]", 2);
+			if (index != SIZE_MAX) {
+				value = data + index + 2;
+				//LOG_INFO("\t[Unfinished] Module Option: '%s' - '%s' '%s'", module, data, value);
+
+				uint8_t write_mode = parse_optionheader( data, module_options, &write_options, &write_map );
+
+				if ( write_options ) {
+					push_configlist(write_options, value);
+				} else if (write_map) {
+					push_configmap(write_map, value, 1);
+				} else if (write_mode == 32) {
+					LOG_INFO("Module Platform option skipped: %s", value);
+				} else {
+					LOG_INFO("Module Platform option skipped: %s", value);
+				}
+			}
+
 		} else if ( elix_cstring_has_prefix(data, "//") ) {
 			
 		} else if ( elix_cstring_has_prefix(data, "$shared") ) {
@@ -1582,7 +1676,7 @@ void parse_package_linux( char data[256], CurrentConfiguration * options, Compil
 				//LOG_INFO("Package %s, %s returned %s", package_name, arguments[i], split_arguments[in]);
 				//push_configlist(config_index[i], split_arguments[in]);
 				if ( pushunique_configlist(config_index[i], split_arguments[in]) ) {
-					LOG_INFO("Package %s, %s returned %s", package_name, arguments[i], split_arguments[in]);
+					LOG_INFO("\tPackage %s, %s returned %s", package_name, arguments[i], split_arguments[in]);
 				}
 				in++;
 			}
@@ -1591,7 +1685,7 @@ void parse_package_linux( char data[256], CurrentConfiguration * options, Compil
 			//LOG_INFO("Package %s, %s returned %s", package_name, arguments[i], genscript_temp_buffer);
 			//push_configlist(config_index[i], genscript_temp_buffer);
 			if ( pushunique_configlist(config_index[i], genscript_temp_buffer) )  {
-				LOG_INFO("Package %s, %s returned %s", package_name, arguments[i], genscript_temp_buffer);
+				LOG_INFO("\tPackage %s, %s returned %s", package_name, arguments[i], genscript_temp_buffer);
 			}
 		}
 
@@ -1599,6 +1693,20 @@ void parse_package_linux( char data[256], CurrentConfiguration * options, Compil
 	}
 }
 
+void parse_package_basepath( char data[256], CurrentConfiguration * options, CompilerInfo * compiler) {
+	char line[512];
+	uint32_t status;
+
+	do {
+		PRINT("============================================\n");
+		PRINT("Enter Base Path for '%s':", data);
+		
+		scanf("%511s", &line);
+		status = 0;
+	} while (status);
+
+
+}
 
 void parse_package( char data[256], CurrentConfiguration * options, CompilerInfo * compiler) {
 
@@ -1613,6 +1721,8 @@ void parse_package( char data[256], CurrentConfiguration * options, CompilerInfo
 	}
 
 }
+
+
 
 uint32_t parse_txtcfg( const char * filename, CurrentConfiguration * options, CompilerInfo * compiler) {
 	LOG_INFO("\tReading %s", filename);
@@ -1633,74 +1743,25 @@ uint32_t parse_txtcfg( const char * filename, CurrentConfiguration * options, Co
 		elix_file_read_line(&file, data, 256);
 
 		if ( data[0] == '[') {
-			if ( elix_cstring_has_prefix(data,"[defines]") ) {
-				write_mode = 1;
-				write_options = &options->defines;
-				write_map = nullptr;
-			} else if ( elix_cstring_has_prefix(data,"[extension]") ) {
-				write_mode = 3;
-				write_options = nullptr;
-				write_map = nullptr;
-			} else if ( elix_cstring_has_prefix(data,"[files]") ) {
-				write_mode = 1;
-				write_options = &options->files;
-				write_map = nullptr;
-			} else if ( elix_cstring_has_prefix(data,"[resources]") ) {
-				write_mode = 1;
-				write_options = &options->resources;
-				write_map = nullptr;
-			} else if ( elix_cstring_has_prefix(data,"[lib_flags]") ) {
-				write_mode = 1;
-				write_options = &options->lib_flags;
-				write_map = nullptr;
-			} else if ( elix_cstring_has_prefix(data,"[compiler_flags]") ) {
-				write_mode = 1;
-				write_options = &options->flags;
-				write_map = nullptr;
-			} else if ( elix_cstring_has_prefix(data,"[final_flags]") ) {
-				write_mode = 1;
-				write_options = &options->final_flags;
-				write_map = nullptr;
-			} else if ( elix_cstring_has_prefix(data,"[linker_flags]") ) {
-				write_mode = 1;
-				write_options = &options->linker_flags;
-				write_map = nullptr;
-			} else if ( elix_cstring_has_prefix(data,"[flags]") ) {
-				write_mode = 1;
-				write_options = &options->flags;
-				write_map = nullptr;
-			} else if ( elix_cstring_has_prefix(data,"[includes]") ) {
-				write_mode = 1;
-				write_options = &options->includes;
-				write_map = nullptr;
-			} else if ( elix_cstring_has_prefix(data,"[libs]") ) {
-				write_mode = 1;
-				write_options = &options->libs;
-				write_map = nullptr;
-			} else if ( elix_cstring_has_prefix(data,"[options]") ) {
-				write_mode = 2;
-				write_options = nullptr;
-				write_map = &options->options;
-			} else if ( elix_cstring_has_prefix(data,platform_option) ) {
-				write_mode = 2;
-				write_options = nullptr;
-				write_map = &options->options;
-			} else if ( elix_cstring_has_prefix(data,"[commands]") ) {
-				write_mode = 2;
-				write_options = nullptr;
-				write_map = &options->commands;
-			} else if ( elix_cstring_has_prefix(data,commands_option) ) {
-				write_mode = 2;
-				write_options = nullptr;
-				write_map = &options->commands;
-			} else if ( elix_cstring_has_prefix(data,package_option) ) {
-				write_mode = 16;
-				write_options = nullptr;
-				write_map = nullptr;
-			} else {
-				write_mode = 0;
-				write_options = nullptr;
-				write_map = nullptr;
+			write_mode = parse_optionheader( data, options, &write_options, &write_map );
+			if ( write_mode == 32 ) {
+				if ( elix_cstring_has_prefix(data,platform_option) ) {
+					write_mode = 2;
+					write_options = nullptr;
+					write_map = &options->options;
+				} else if ( elix_cstring_has_prefix(data,commands_option) ) {
+					write_mode = 2;
+					write_options = nullptr;
+					write_map = &options->commands;
+				} else if ( elix_cstring_has_prefix(data,package_option) ) {
+					write_mode = 16;
+					write_options = nullptr;
+					write_map = nullptr;
+				} else {
+					write_mode = 0;
+					write_options = nullptr;
+					write_map = nullptr;
+				}
 			}
 		} else if ( data[0] == '#') {
 		} else if ( data[0] < 32 ) {
@@ -1716,7 +1777,7 @@ uint32_t parse_txtcfg( const char * filename, CurrentConfiguration * options, Co
 				pushstring_extensionoutput(ninja_extension_output, data);
 			} else if (write_mode == 16) {
 				elix_cstring_transform(data, ELIX_CHAR_LOWER);
-				LOG_INFO("Package Lookup: %s", data);
+				LOG_INFO("\tPackage Lookup: %s", data);
 				parse_package(data, options, compiler);
 			} else {
 				//LOG_INFO("Config option skipped: %s", data);
@@ -1746,6 +1807,20 @@ size_t join_config_option( JoinConfigList * item) {
 	}
 
 	return elix_cstring_length(item->buffer, 0);
+}
+
+void module_options_file_write( elix_file * file, JoinConfigList ini_list, char * prefix, ConfigList * mod_option) {
+	if ( mod_option->current > 0 ) {
+		elix_file_write_formatted(file, prefix);
+		for (size_t i = 0; i < mod_option->current; i++) {
+			if( ini_list.skip_formatting_prefix && elix_cstring_has_prefix( mod_option->value[i], ini_list.skip_formatting_prefix) ) {
+				elix_file_write_formatted(file, "%s ", mod_option->value[i]);
+			} else {
+				elix_file_write_formatted(file, ini_list.formatting, mod_option->value[i]);
+			}
+		}
+		elix_file_write_formatted(file, "\n");
+	}
 }
 
 uint32_t fg_build_ninja(CompilerInfo * target, CurrentConfiguration * options, char * filename ){
@@ -1779,6 +1854,7 @@ uint32_t fg_build_ninja(CompilerInfo * target, CurrentConfiguration * options, c
 	parse_txtcfg(arch_file, options, target);
 	parse_txtcfg(compiler_common_file, options, target);
 	parse_txtcfg(compiler_file, options, target);
+	parse_txtcfg("./config/local.txt", options, target);
 
 	for (size_t i = 0; i < ARRAY_SIZE(ini_list); i++) {
 		size_t s = join_config_option(&ini_list[i]);
@@ -1825,8 +1901,6 @@ uint32_t fg_build_ninja(CompilerInfo * target, CurrentConfiguration * options, c
 	} else {
 		elix_file_write_formatted(&file, "program_executable = %s\n", program_name);
 	}
-
-	
 
 	elix_file_write_formatted(&file, "finaliser_flags = %s\n", ini_list[JCO_FINAL_FLAGS].buffer);
 
@@ -1877,8 +1951,6 @@ uint32_t fg_build_ninja(CompilerInfo * target, CurrentConfiguration * options, c
 	elix_file_write_string(&file, "\n", 1);
 	elix_file_write_string(&file, "#Files\n", 0);
 
-	
-
 	char objects[6144] = {0};
 	char resources[6144] = {0};
 	char defaults[1024] = {0};
@@ -1913,15 +1985,15 @@ uint32_t fg_build_ninja(CompilerInfo * target, CurrentConfiguration * options, c
 		elix_cstring_append(defaults, 1023, "${object_dir}/resources ", 24);
 	}
 
-	//parse_filelist("base", &options->files, &options->modules);
 	for (size_t j = 0; j < options->modules.current; j++) {
 		size_t i = options->files.current;
 		ConfigList link_objects = {0};
-		uint8_t linking_method = parse_filelist(options->modules.value[j], &options->files, &options->modules, &link_objects);
+		CurrentConfiguration mod_options = {0};
+		uint8_t linking_method = parse_filelist(options->modules.value[j], &options->files, &options->modules, &link_objects, &mod_options, target);
 	
 		char * current_name = j == 0 ? program_name : options->modules.value[j];
 		elix_file_write_formatted(&file, "#Module: %s [%x]\n", options->modules.value[j], linking_method);
-		for (; i < options->files.current; i++){
+		for (; i < options->files.current; i++) {
 			for (size_t var = 5; var < ARRAY_SIZE(ninja_extension_output); var ++) {
 				if ( !ninja_extension_output[var].stage[0] ) {
 					break;
@@ -1935,7 +2007,6 @@ uint32_t fg_build_ninja(CompilerInfo * target, CurrentConfiguration * options, c
 							break;
 						}
 					}
-					
 					char * no_src_dir = options->files.value[i];
 					size_t ifrst_dir_index = elix_cstring_find_of(options->files.value[i], "/", 0);
 					if ( ifrst_dir_index < 64 ) {
@@ -1943,10 +2014,10 @@ uint32_t fg_build_ninja(CompilerInfo * target, CurrentConfiguration * options, c
 					}
 
 					elix_file_write_formatted(&file, ninja_extension_output[var].content, no_src_dir, ninja_extension_output[var].oext, options->files.value[i]);
-					char format_buffer[128] = {0};
-					
-					size_t q = snprintf(format_buffer, 128, "${object_dir}%s.%s ", no_src_dir, ninja_extension_output[var].oext);
-					
+					char format_buffer[256] = {0};
+
+					size_t q = snprintf(format_buffer, 256, "${object_dir}%s.%s ", no_src_dir, ninja_extension_output[var].oext);
+
 					elix_cstring_append(objects, 6144, format_buffer, q);
 
 					break;
@@ -1958,7 +2029,7 @@ uint32_t fg_build_ninja(CompilerInfo * target, CurrentConfiguration * options, c
 			case LT_STATIC:
 				LOG_INFO("\tStatic Lib: %s", current_name);
 				elix_file_write_formatted(&file, ninja_extension_output[2].content, current_name, objects,current_name,current_name);
-		
+
 				elix_cstring_append(defaults, 1023, current_name, elix_cstring_length(current_name, 0));
 				elix_cstring_append(defaults, 1023, "${binary_suffix}${static_suffix} ", 34);
 
@@ -1984,6 +2055,15 @@ uint32_t fg_build_ninja(CompilerInfo * target, CurrentConfiguration * options, c
 				
 				elix_cstring_append(defaults, 1023, current_name, elix_cstring_length(current_name, 0));
 				elix_cstring_append(defaults, 1023, "${binary_suffix}${program_suffix} ", 35);
+
+				module_options_file_write(&file, ini_list[JCO_LIBS], "    compiler_lib = ", &mod_options.libs );
+				module_options_file_write(&file, ini_list[JCO_LIBS_FLAGS], "    compiler_lib_flags = ", &mod_options.lib_flags );
+				module_options_file_write(&file, ini_list[JCO_LINKER_FLAGS], "    compiler_linker_flags = ", &mod_options.linker_flags );
+				module_options_file_write(&file, ini_list[JCO_FLAGS], "    compiler_flags = ", &mod_options.flags );
+				module_options_file_write(&file, ini_list[JCO_INCLUDE], "    compiler_includes = ", &mod_options.includes );
+				module_options_file_write(&file, ini_list[JCO_DEFINES], "    compiler_defines = ", &mod_options.defines );
+				module_options_file_write(&file, ini_list[JCO_FINAL_FLAGS], "    finaliser_flags = ", &mod_options.final_flags );
+
 				break;
 		}
 		elix_file_write_string(&file, "\n", 1);
@@ -1991,8 +2071,9 @@ uint32_t fg_build_ninja(CompilerInfo * target, CurrentConfiguration * options, c
 	}
 
 	elix_file_write_string(&file, "\n", 1);
-	
+
 	if ( find_configmap(&options->options, "finaliser") != SIZE_MAX ) {
+		elix_file_write_formatted(&file, "####################################\n");
 		elix_file_write_formatted(&file, "#Finaliser Step\n");
 		elix_file_write_formatted(&file, ninja_extension_output[2].content, program_name, program_name);
 	} else {
@@ -2162,7 +2243,8 @@ uint32_t fg_build_shellscript(CompilerInfo * target, CurrentConfiguration * opti
 	for (size_t j = 0; j < options->modules.current; j++){
 		size_t i = options->files.current;
 		ConfigList link_objects = {0};
-		uint8_t linking_method = parse_filelist(options->modules.value[j], &options->files, &options->modules, &link_objects);
+		CurrentConfiguration mod_options = {0};
+		uint8_t linking_method = parse_filelist(options->modules.value[j], &options->files, &options->modules, &link_objects, &mod_options, target);
 
 		char objects_buffer[6144] = {0};
 		char * current_name = j == 0 ? program_name : options->modules.value[j];
@@ -2440,7 +2522,8 @@ uint32_t fg_build_batch(CompilerInfo * target, CurrentConfiguration * options, c
 	for (size_t j = 0; j < options->modules.current; j++) {
 		size_t i = options->files.current;
 		ConfigList link_objects = {0};
-		uint8_t linking_method = parse_filelist(options->modules.value[j], &options->files, &options->modules, &link_objects);
+		CurrentConfiguration mod_options = {0};
+		uint8_t linking_method = parse_filelist(options->modules.value[j], &options->files, &options->modules, &link_objects, &mod_options, target);
 
 		char objects_buffer[4096] = {0};
 		char * current_name = j == 0 ? program_name : options->modules.value[j];
@@ -3015,7 +3098,7 @@ typedef struct {
 
 
 
-static CLIMenu menu_root[4] = {
+static CLIMenu menu_root[5] = {
 	{"Create New Project", '1', 255, &creeate_newproject},
 	{"Generate config files for $platform-$arch", '2', 255, &creeate_newplatform},
 	{"Generate Build Script for $platform-$arch", '3', 255, &creeate_generator},
@@ -3279,6 +3362,16 @@ int main(int argc, char * argv[]) {
 				LOG_INFO("- %s\t\t0x%x", platform_list[i], elix_hash(platform_list[i], elix_cstring_length(platform_list[i], 0)) );
 			}
 
+			break;
+
+
+		case PM_REBUILDSELF:
+			LOG_INFO("Running: gcc genscript.c -ggdb3  -o gsb.exe");
+			//elix_os_command("gcc", nullptr/*env*/, "genscript.c" "-ggdb3" "-o" "gsb.exe", nullptr);
+
+			char q[256] = {0};
+			elix_os_command_capture("gcc", q, 255, nullptr/*env*/, "genscript.c " "-ggdb3 " "-o " "gsb2.exe", nullptr);
+			LOG_INFO("Output: %s", q);
 			break;
 		case PM_INTERACTIVE:
 			cli_loop(&info, &configuration);
