@@ -1560,90 +1560,14 @@ uint8_t parse_optionheader( char * data, CurrentConfiguration * options, ConfigL
 		*write_options = nullptr;
 		*write_map = nullptr;
 		return 32;
+	} else if ( elix_cstring_has_prefix(data,"[pkg]") ) {
+		*write_options = nullptr;
+		*write_map = nullptr;
+		return 16;
 	}
 	*write_options = nullptr;
 	*write_map = nullptr;
 	return 0;
-}
-
-uint8_t parse_filelist( const char * module, ConfigList * files, ConfigList * module_list, ConfigList * link_objects, CurrentConfiguration * module_options, CompilerInfo * compiler) {
-	uint8_t link = LT_PROGRAM;
-	char filename[512] = "./config/modules/$module.txt";
-	uint8_t counter = 0;
-	elix_cstring_inreplace(filename, 512, "$module", module,0);
-
-	elix_file file = {0};
-	elix_file_open(&file, filename, EFF_FILE_READ);
-	while (!elix_file_at_end(&file)) {
-		char data[256] = {0};
-		elix_file_read_line(&file, data, 256);
-		elix_cstring_trim(data);
-		//LOG_INFO("Module: '%s' requires: '%s'", module, data);
-		if ( elix_cstring_has_prefix(data, "#") ) {
-			//LOG_INFO("Note: '%s' requires: '%s' module", module, data + 1);
-			pushunique_configlist(module_list, data + 1);
-
-			elix_cstring_copy("", link_objects->value[link_objects->current]);
-			
-			elix_cstring_append(link_objects->value[link_objects->current], 255, "${object_dir}", 14);
-			elix_cstring_append(link_objects->value[link_objects->current], 255, data + 1, elix_cstring_length(data + 1, 0));
-			elix_cstring_append(link_objects->value[link_objects->current], 255, "${binary_suffix}${static_suffix} ", 34);
-			
-			//LOG_INFO("%d %s", link_objects->current, link_objects->value[link_objects->current]);
-			link_objects->current++;
-		} else if ( elix_cstring_has_prefix(data, "[") ) {
-			char * value = nullptr;
-			ConfigList * write_options = nullptr;
-			ConfigMap * write_map = nullptr;
-
-			size_t index = elix_cstring_find_of(data, "]", 2);
-			if (index != SIZE_MAX) {
-				value = data + index + 2;
-				//LOG_INFO("\t[Unfinished] Module Option: '%s' - '%s' '%s'", module, data, value);
-
-				uint8_t write_mode = parse_optionheader( data, module_options, &write_options, &write_map );
-
-				if ( write_options ) {
-					push_configlist(write_options, value);
-				} else if (write_map) {
-					push_configmap(write_map, value, 1);
-				} else if (write_mode == 32) {
-					LOG_INFO("Module Platform option skipped: %s", value);
-				} else {
-					LOG_INFO("Module Platform option skipped: %s", value);
-				}
-			}
-
-		} else if ( elix_cstring_has_prefix(data, "//") ) {
-			
-		} else if ( elix_cstring_has_prefix(data, "$shared") ) {
-			link = LT_SHARED;
-		} else if ( elix_cstring_has_prefix(data, "$static") ) {
-			link = LT_STATIC;
-		} else if ( elix_cstring_has_prefix(data, "./") ) {
-			if ( elix_cstring_find_of(data, "/*.", 1) != SIZE_MAX) {
-				scan_filelist(data, module, files, module_list, link_objects);
-			} else {
-				elix_cstring_copy(data + 2, files->value[files->current]);
-			}
-			counter++;
-		} else if ( data[0] ) {
-			if ( elix_cstring_find_of(data, "/*.", 0) != SIZE_MAX ) {
-				scan_filelist(data, module, files, module_list, link_objects);
-			} else {
-				elix_cstring_copy(data, files->value[files->current]);
-			}
-			
-			counter++;
-		}
-		files->current++;
-	}
-
-	if ( counter == 0) {
-		link = LT_SKIP;
-	}
-	
-	return link;
 }
 
 
@@ -1721,6 +1645,117 @@ void parse_package( char data[256], CurrentConfiguration * options, CompilerInfo
 	}
 
 }
+
+uint8_t parse_filelist( const char * module, ConfigList * files, ConfigList * module_list, ConfigList * link_objects, CurrentConfiguration * module_options, CompilerInfo * compiler) {
+	uint8_t link = LT_PROGRAM;
+	char filename[512] = "./config/modules/$module.txt";
+	uint8_t counter = 0;
+	elix_cstring_inreplace(filename, 512, "$module", module,0);
+
+	elix_file file = {0};
+	elix_file_open(&file, filename, EFF_FILE_READ);
+	while (!elix_file_at_end(&file)) {
+		char data[256] = {0};
+		elix_file_read_line(&file, data, 256);
+		elix_cstring_trim(data);
+		//LOG_INFO("Module: '%s' requires: '%s'", module, data);
+		if ( elix_cstring_has_prefix(data, "#") ) {
+			//LOG_INFO("Note: '%s' requires: '%s' module", module, data + 1);
+			pushunique_configlist(module_list, data + 1);
+
+			elix_cstring_copy("", link_objects->value[link_objects->current]);
+			
+			elix_cstring_append(link_objects->value[link_objects->current], 255, "${object_dir}", 14);
+			elix_cstring_append(link_objects->value[link_objects->current], 255, data + 1, elix_cstring_length(data + 1, 0));
+			elix_cstring_append(link_objects->value[link_objects->current], 255, "${binary_suffix}${static_suffix} ", 34);
+			
+			//LOG_INFO("%d %s", link_objects->current, link_objects->value[link_objects->current]);
+			link_objects->current++;
+		} else if ( elix_cstring_has_prefix(data, "[") ) {
+			char * value = nullptr;
+			ConfigList * write_options = nullptr;
+			ConfigMap * write_map = nullptr;
+
+			size_t index = elix_cstring_find_of(data, "]", 2);
+			if (index != SIZE_MAX) {
+				value = data + index + 2;
+				//LOG_INFO("\t[Unfinished] Module Option: '%s' - '%s' '%s'", module, data, value);
+
+				uint8_t write_mode = parse_optionheader( data, module_options, &write_options, &write_map );
+
+				if ( write_options ) {
+					push_configlist(write_options, value);
+				} else if (write_map) {
+					push_configmap(write_map, value, 1);
+				} else if (write_mode == 16) {
+					elix_cstring_transform(value, ELIX_CHAR_LOWER);
+					LOG_INFO("\tPackage Lookup: %s", value);
+					parse_package(value, module_options, compiler);
+				} else if (write_mode == 32) {
+					// {0, "[options-%s]"},{1, "[commands-%s]"}, {0, "[pkg-%s]"},
+					char * suboptions[] = {"[options-%s]", "[commands-%s]", "[pkg-%s]", nullptr };
+					char sub_option_name[64] = {0};
+
+					for (uint8_t i = 0; i < 3; i++) {
+						snprintf(sub_option_name, 64, suboptions[i], compiler->os);
+						if ( elix_cstring_has_prefix(data,sub_option_name) ) {
+							switch (i) {
+								case 0:
+									push_configmap(&module_options->options, value, 1);
+								break;
+								case 1:
+									push_configmap(&module_options->commands, value, 1);
+								break;
+								case 2:
+									elix_cstring_transform(value, ELIX_CHAR_LOWER);
+									LOG_INFO("\tPackage Lookup: %s", value);
+									parse_package(value, module_options, compiler);
+								break;
+							
+								default:
+									LOG_INFO("Module Platform option skipped: %s", data);
+								break;
+							}
+						}
+					}
+				} else {
+					LOG_INFO("\tModule Platform option skipped: %s", value);
+				}
+			}
+
+		} else if ( elix_cstring_has_prefix(data, "//") ) {
+			
+		} else if ( elix_cstring_has_prefix(data, "$shared") ) {
+			link = LT_SHARED;
+		} else if ( elix_cstring_has_prefix(data, "$static") ) {
+			link = LT_STATIC;
+		} else if ( elix_cstring_has_prefix(data, "./") ) {
+			if ( elix_cstring_find_of(data, "/*.", 1) != SIZE_MAX) {
+				scan_filelist(data, module, files, module_list, link_objects);
+			} else {
+				elix_cstring_copy(data + 2, files->value[files->current]);
+			}
+			counter++;
+		} else if ( data[0] ) {
+			if ( elix_cstring_find_of(data, "/*.", 0) != SIZE_MAX ) {
+				scan_filelist(data, module, files, module_list, link_objects);
+			} else {
+				elix_cstring_copy(data, files->value[files->current]);
+			}
+			
+			counter++;
+		}
+		files->current++;
+	}
+
+	if ( counter == 0) {
+		link = LT_SKIP;
+	}
+	
+	return link;
+}
+
+
 
 
 
